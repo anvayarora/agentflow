@@ -15,7 +15,7 @@ The current application is a TypeScript/React commerce control plane with separa
 ## Environments
 
 - Local: `npm run dev`
-- Preview: Vercel deployment from the reviewed GitHub source; the verified Preview is currently created directly because the authenticated Vercel team scope does not permit deployment creation
+- Preview: the GitHub repository is linked to the Vercel project `agentflow-buildathon`; the current Vercel team role returns 403 when creating a deployment, so hosted Preview generation remains a release blocker
 - Production: intentionally not promoted until red-team and E2E verification pass
 
 ## Environment variable names
@@ -26,8 +26,8 @@ Configure the names in `.env.example` through the deployment secret store. Never
 
 1. Run the local checks and production build.
 2. Confirm the secret scan is clean and inspect staged files.
-3. Commit the reviewed source to the private GitHub repository.
-4. Create a Preview deployment from the reviewed commit. Once the Vercel team role is corrected, enable the GitHub webhook so pushes to a feature branch create Previews automatically.
+3. Push the reviewed feature branch or open a draft pull request in the private GitHub repository.
+4. Once the Vercel team role is corrected, the GitHub link will create a Preview for the branch automatically; do not promote `main` until the release gates pass.
 5. Verify `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, and `/customer`.
 6. Keep Production promotion gated behind red-team and E2E verification.
 
@@ -41,8 +41,8 @@ Use Vercel's deployment history to promote the last verified Preview to Producti
 
 ## Current integrations
 
-- Catalogue: Shopify development-store sync when `SHOPIFY_STOREFRONT_ACCESS_TOKEN` is configured; seeded Haven Home fallback otherwise
+- Catalogue: server-side Shopify development-store sync through `/api/connectors/shopify/catalog` when a Storefront or Admin token is configured; seeded Haven Home fallback otherwise
 - Payments: Mock / test adapter presentation only; no live payment credentials
-- LLM: NVIDIA NIM server route when `NIM_API_KEY` is configured; deterministic compiler fallback otherwise
+- LLM: NVIDIA NIM server route when `NIM_API_KEY` is configured; deterministic compiler fallback otherwise. The key must be rotated and entered through the deployment secret store.
 - Shopify: Haven Home development storefront connected for the customer preview
 - WooCommerce: not connected
