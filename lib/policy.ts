@@ -34,7 +34,16 @@ export type CommerceActionInput = {
   isAttack?: boolean;
 };
 
-export const demoPolicy = {
+export type CommercePolicy = {
+  version: number;
+  standardMaxDiscount: number;
+  repeatMaxDiscount: number;
+  minimumMargin: number;
+  lowStockThreshold: number;
+  approvalThreshold: number;
+};
+
+export const demoPolicy: CommercePolicy = {
   version: 18,
   standardMaxDiscount: 10,
   repeatMaxDiscount: 15,
@@ -43,14 +52,14 @@ export const demoPolicy = {
   approvalThreshold: 50000,
 };
 
-export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecision {
+export function evaluateCommerceAction(input: CommerceActionInput, policy: CommercePolicy = demoPolicy): PolicyDecision {
   const invalidDecision = (reason: string): PolicyDecision => ({
     outcome: "DENY",
     matchedRules: ["Input validation · malformed commerce request"],
     explanation: [reason],
     requiresApproval: false,
     riskFlags: ["invalid-input"],
-    policyVersion: demoPolicy.version,
+    policyVersion: policy.version,
   });
 
   if (!input || typeof input !== "object" || !input.product || typeof input.product !== "object") {
@@ -77,7 +86,7 @@ export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecisi
   const riskFlags: string[] = [];
   void riskFlags;
   const isHardAttack = input.isAttack || requestedDiscount >= 80;
-  const customerMax = customerSegment === "repeat" ? demoPolicy.repeatMaxDiscount : demoPolicy.standardMaxDiscount;
+  const customerMax = customerSegment === "repeat" ? policy.repeatMaxDiscount : policy.standardMaxDiscount;
   const maxDiscount = Math.min(customerMax, product.tag === "High stock" ? customerMax : customerMax);
   const counterPrice = product.price * (1 - maxDiscount / 100);
   const requestedPrice = product.price * (1 - requestedDiscount / 100);
@@ -92,11 +101,11 @@ export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecisi
       explanation: [
         `LLM proposal: ${requestedDiscount}% discount.`,
         `Policy runtime capped this customer at ${maxDiscount}%.`,
-        "No Razorpay call was made.",
+        "No connector action was made.",
       ],
       requiresApproval: false,
       riskFlags: ["prompt-injection", "discount-limit-exceeded"],
-      policyVersion: demoPolicy.version,
+      policyVersion: policy.version,
     };
   }
 
@@ -108,19 +117,19 @@ export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecisi
       explanation: ["This product is protected by a hard no-discount rule."],
       requiresApproval: false,
       riskFlags: ["protected-product"],
-      policyVersion: demoPolicy.version,
+      policyVersion: policy.version,
     };
   }
 
-  if (requestedDiscount > 0 && product.stock < demoPolicy.lowStockThreshold) {
+  if (requestedDiscount > 0 && product.stock < policy.lowStockThreshold) {
     return {
       outcome: "DENY",
       maxAllowedDiscount: 0,
       matchedRules: ["Inventory safety · low stock", "Disable negotiation"],
-      explanation: [`Only ${product.stock} units remain. Autonomous discounting is disabled below ${demoPolicy.lowStockThreshold} units.`],
+      explanation: [`Only ${product.stock} units remain. Autonomous discounting is disabled below ${policy.lowStockThreshold} units.`],
       requiresApproval: false,
       riskFlags: ["low-stock"],
-      policyVersion: demoPolicy.version,
+      policyVersion: policy.version,
     };
   }
 
@@ -132,17 +141,17 @@ export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecisi
       explanation: ["Cost data is missing, so the runtime cannot prove the margin floor. Autonomous discounting is unavailable."],
       requiresApproval: true,
       riskFlags: ["missing-cost"],
-      policyVersion: demoPolicy.version,
+      policyVersion: policy.version,
     };
   }
 
-  rules.push(customerSegment === "repeat" ? "Repeat customer · maximum 15%" : "Standard customer · maximum 10%");
-  rules.push(`Minimum gross margin · ${demoPolicy.minimumMargin}%`);
-  explanation.push(customerSegment === "repeat" ? "Repeat customer → maximum 15%." : "Standard customer → maximum 10%.");
-  explanation.push(`Stock → ${product.stock}, threshold = ${demoPolicy.lowStockThreshold}.`);
-  explanation.push(`Projected margin → ${marginAtRequested?.toFixed(1)}%, required = ${demoPolicy.minimumMargin}%.`);
+  rules.push(customerSegment === "repeat" ? `Repeat customer · maximum ${policy.repeatMaxDiscount}%` : `Standard customer · maximum ${policy.standardMaxDiscount}%`);
+  rules.push(`Minimum gross margin · ${policy.minimumMargin}%`);
+  explanation.push(customerSegment === "repeat" ? `Repeat customer → maximum ${policy.repeatMaxDiscount}%.` : `Standard customer → maximum ${policy.standardMaxDiscount}%.`);
+  explanation.push(`Stock → ${product.stock}, threshold = ${policy.lowStockThreshold}.`);
+  explanation.push(`Projected margin → ${marginAtRequested?.toFixed(1)}%, required = ${policy.minimumMargin}%.`);
 
-  if (marginAtRequested != null && marginAtRequested < demoPolicy.minimumMargin) {
+  if (marginAtRequested != null && marginAtRequested < policy.minimumMargin) {
     return {
       outcome: "ESCALATE",
       maxAllowedDiscount: maxDiscount,
@@ -150,25 +159,25 @@ export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecisi
       explanation: [...explanation, "The requested price would breach the merchant's margin floor."],
       requiresApproval: true,
       riskFlags: ["margin-floor"],
-      policyVersion: demoPolicy.version,
+      policyVersion: policy.version,
     };
   }
 
   if (requestedDiscount <= maxDiscount) {
-    const requiresApproval = orderValue > demoPolicy.approvalThreshold;
+    const requiresApproval = orderValue > policy.approvalThreshold;
     return {
       outcome: requiresApproval ? "ESCALATE" : "ALLOW",
       proposedPrice: requestedPrice,
       maxAllowedDiscount: maxDiscount,
       matchedRules: [...rules, requiresApproval ? "Order threshold · merchant approval" : "Autonomous authority"],
-      explanation: [...explanation, `Order value → ${orderValue > demoPolicy.approvalThreshold ? "above" : "below"} ₹50,000 approval threshold.`],
+      explanation: [...explanation, `Order value → ${orderValue > policy.approvalThreshold ? "above" : "below"} ₹${policy.approvalThreshold.toLocaleString("en-IN")} approval threshold.`],
       requiresApproval,
       riskFlags: requiresApproval ? ["high-order-value"] : [],
-      policyVersion: demoPolicy.version,
+      policyVersion: policy.version,
     };
   }
 
-  if (marginAtMax != null && marginAtMax < demoPolicy.minimumMargin) {
+  if (marginAtMax != null && marginAtMax < policy.minimumMargin) {
     return {
       outcome: "ESCALATE",
       maxAllowedDiscount: maxDiscount,
@@ -176,11 +185,11 @@ export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecisi
       explanation: [...explanation, `Even the policy maximum would project ${marginAtMax.toFixed(1)}% margin. Sending to a merchant.`],
       requiresApproval: true,
       riskFlags: ["margin-floor"],
-      policyVersion: demoPolicy.version,
+      policyVersion: policy.version,
     };
   }
 
-  const isBulk = quantity > 1 || orderValue > demoPolicy.approvalThreshold;
+  const isBulk = quantity > 1 || orderValue > policy.approvalThreshold;
   return {
     outcome: isBulk ? "ESCALATE" : "COUNTER",
     proposedPrice: counterPrice,
@@ -193,6 +202,6 @@ export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecisi
     ],
     requiresApproval: isBulk,
     riskFlags: isBulk ? ["outside-autonomous-authority"] : [],
-    policyVersion: demoPolicy.version,
+    policyVersion: policy.version,
   };
 }

@@ -10,7 +10,7 @@ Vercel Preview
 AgentFlow demo
 ```
 
-The current application is a client-rendered TypeScript/React prototype with a deterministic policy evaluator and seeded Haven Home commerce data. Vercel builds use the documented `vinext` + Nitro adapter; local/Sites builds retain the existing Cloudflare adapter. No provider secret is required for the demo build.
+The current application is a TypeScript/React commerce control plane with separate merchant and customer routes, a deterministic policy evaluator, a secure server-side connector boundary, and a seeded Haven Home fallback catalogue. Vercel builds use the documented `vinext` + Nitro adapter; local/Sites builds retain the existing Cloudflare adapter. Secrets are read only by server routes and are never bundled into client code.
 
 ## Environments
 
@@ -20,20 +20,20 @@ The current application is a client-rendered TypeScript/React prototype with a d
 
 ## Environment variable names
 
-No application environment variables are required by the current demo build. Future provider-backed environments should add names to `.env.example` before configuring Vercel.
+Configure the names in `.env.example` through the deployment secret store. Never commit values. NIM and Shopify are optional; the safe deterministic compiler and preview catalogue remain available when live credentials are absent.
 
 ## Deployment process
 
 1. Run the local checks and production build.
 2. Confirm the secret scan is clean and inspect staged files.
-3. Commit to `main` in the private GitHub repository.
+3. Commit the reviewed source to the private GitHub repository.
 4. Create a Preview deployment from the reviewed commit. Once the Vercel team role is corrected, enable the GitHub webhook so pushes to a feature branch create Previews automatically.
-5. Verify `/`, the merchant workspace, the policy surface, and `/store`.
+5. Verify `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, and `/customer`.
 6. Keep Production promotion gated behind red-team and E2E verification.
 
 ## Preview verification
 
-Smoke test the landing page, demo launch, merchant dashboard, seeded catalogue, policy canvas, storefront chat, a normal negotiation, and the absence of unexpected payment requests. Also inspect browser console errors, failed network requests, Vercel build output, and runtime logs. The current app exposes the demo through `/`; `/login`, `/app`, and `/store` are not separate route files yet.
+Smoke test the landing page, separate merchant dashboard, guided onboarding compiler, discrepancy review, editable workflow, connector status, customer storefront, chat, a custom negotiation, and the absence of unexpected live payment requests. Also inspect browser console errors, failed network requests, Vercel build output, and runtime logs.
 
 ## Rollback procedure
 
@@ -41,8 +41,8 @@ Use Vercel's deployment history to promote the last verified Preview to Producti
 
 ## Current integrations
 
-- Catalogue: Demo / seeded Haven Home data with CSV/XLSX upload UI
-- Payments: Mock / Razorpay Test Mode presentation only; no live payment credentials
-- LLM: Mock / deterministic local demo flow; no NVIDIA NIM credential configured
-- Shopify: not connected
+- Catalogue: Shopify development-store sync when `SHOPIFY_STOREFRONT_ACCESS_TOKEN` is configured; seeded Haven Home fallback otherwise
+- Payments: Mock / test adapter presentation only; no live payment credentials
+- LLM: NVIDIA NIM server route when `NIM_API_KEY` is configured; deterministic compiler fallback otherwise
+- Shopify: Haven Home development storefront connected for the customer preview
 - WooCommerce: not connected

@@ -13,11 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentFlow — Commerce that explains itself",
+  title: "AgentFlow — Connected commerce, made legible",
   description:
-    "Make your store ready for AI buyers. Describe how you do business and AgentFlow turns it into a safe, machine-executable commerce policy.",
+    "A clear operating layer for connected commerce: catalogue, policy, approvals, and the customer experience.",
   applicationName: "AgentFlow",
-  keywords: ["agentic commerce", "Razorpay", "merchant policy", "AI commerce"],
+  keywords: ["agentic commerce", "merchant policy", "connected commerce", "AI commerce"],
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
