@@ -15,7 +15,7 @@ The current application is a TypeScript/React commerce control plane with separa
 ## Environments
 
 - Local: `npm run dev`
-- Preview: the GitHub repository is linked to the Vercel project `agentflow-buildathon`; the current Vercel team role returns 403 when creating a deployment, so hosted Preview generation remains a release blocker
+- Preview: the GitHub repository is linked to the Vercel project `agentflow-buildathon`; the current Vercel team role returns 403 when creating a deployment from `main`, so hosted Preview generation remains a release blocker
 - Production: intentionally not promoted until red-team and E2E verification pass
 
 ## Environment variable names
@@ -26,8 +26,8 @@ Configure the names in `.env.example` through the deployment secret store. Never
 
 1. Run the local checks and production build.
 2. Confirm the secret scan is clean and inspect staged files.
-3. Push the reviewed feature branch or open a draft pull request in the private GitHub repository.
-4. Once the Vercel team role is corrected, the GitHub link will create a Preview for the branch automatically; do not promote `main` until the release gates pass.
+3. Push the reviewed source to `main` in the private GitHub repository.
+4. Once the Vercel team role is corrected, the GitHub link will deploy the updated `main`; keep Production promotion gated behind the release checks.
 5. Verify `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, and `/customer`.
 6. Keep Production promotion gated behind red-team and E2E verification.
 
