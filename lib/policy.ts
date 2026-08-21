@@ -44,8 +44,34 @@ export const demoPolicy = {
 };
 
 export function evaluateCommerceAction(input: CommerceActionInput): PolicyDecision {
+  const invalidDecision = (reason: string): PolicyDecision => ({
+    outcome: "DENY",
+    matchedRules: ["Input validation · malformed commerce request"],
+    explanation: [reason],
+    requiresApproval: false,
+    riskFlags: ["invalid-input"],
+    policyVersion: demoPolicy.version,
+  });
+
+  if (!input || typeof input !== "object" || !input.product || typeof input.product !== "object") {
+    return invalidDecision("The policy runtime rejected a malformed commerce request.");
+  }
+
   const { product, requestedDiscount, quantity, customerSegment } = input;
-  const orderValue = input.orderValue ?? product.price * quantity * (1 - requestedDiscount / 100);
+  const numericInputs = [product.price, product.stock, requestedDiscount, quantity];
+  const hasInvalidNumericInput = numericInputs.some((value) => typeof value !== "number" || !Number.isFinite(value));
+  const hasInvalidCost = product.cost !== null && (typeof product.cost !== "number" || !Number.isFinite(product.cost));
+
+  if (hasInvalidNumericInput || hasInvalidCost || customerSegment !== "new" && customerSegment !== "repeat") {
+    return invalidDecision("The policy runtime rejected non-finite or malformed commerce data.");
+  }
+
+  if (product.price <= 0 || product.stock < 0 || product.cost != null && product.cost < 0 || requestedDiscount < 0 || requestedDiscount > 100 || quantity <= 0 || !Number.isInteger(quantity)) {
+    return invalidDecision("The policy runtime rejected an invalid price, stock, discount, cost, or quantity.");
+  }
+
+  // The client-supplied orderValue is display context only. Authority uses canonical product economics.
+  const orderValue = product.price * quantity * (1 - requestedDiscount / 100);
   const rules: string[] = [];
   const explanation: string[] = [];
   const riskFlags: string[] = [];
