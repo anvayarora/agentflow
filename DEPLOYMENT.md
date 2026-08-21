@@ -10,12 +10,12 @@ Vercel Preview
 AgentFlow demo
 ```
 
-The current application is a client-rendered TypeScript/React prototype with a deterministic policy evaluator and seeded Haven Home commerce data. No provider secret is required for the demo build.
+The current application is a client-rendered TypeScript/React prototype with a deterministic policy evaluator and seeded Haven Home commerce data. Vercel builds use the documented `vinext` + Nitro adapter; local/Sites builds retain the existing Cloudflare adapter. No provider secret is required for the demo build.
 
 ## Environments
 
 - Local: `npm run dev`
-- Preview: Git-connected Vercel deployment from `main` or a feature branch
+- Preview: Vercel deployment from the reviewed GitHub source; the verified Preview is currently created directly because the authenticated Vercel team scope does not permit deployment creation
 - Production: intentionally not promoted until red-team and E2E verification pass
 
 ## Environment variable names
@@ -27,13 +27,13 @@ No application environment variables are required by the current demo build. Fut
 1. Run the local checks and production build.
 2. Confirm the secret scan is clean and inspect staged files.
 3. Commit to `main` in the private GitHub repository.
-4. Let the Git-connected Vercel project create a Preview deployment.
+4. Create a Preview deployment from the reviewed commit. Once the Vercel team role is corrected, enable the GitHub webhook so pushes to a feature branch create Previews automatically.
 5. Verify `/`, the merchant workspace, the policy surface, and `/store`.
 6. Keep Production promotion gated behind red-team and E2E verification.
 
 ## Preview verification
 
-Smoke test the landing page, demo launch, merchant dashboard, seeded catalogue, policy canvas, storefront chat, a normal negotiation, and the absence of unexpected payment requests. Also inspect browser console errors, failed network requests, Vercel build output, and runtime logs.
+Smoke test the landing page, demo launch, merchant dashboard, seeded catalogue, policy canvas, storefront chat, a normal negotiation, and the absence of unexpected payment requests. Also inspect browser console errors, failed network requests, Vercel build output, and runtime logs. The current app exposes the demo through `/`; `/login`, `/app`, and `/store` are not separate route files yet.
 
 ## Rollback procedure
 
