@@ -12,6 +12,8 @@ AgentFlow server + React surfaces
 PostgreSQL (DATABASE_URL)
 ```
 
+The current PostgreSQL service is Aiven `agentflow-postgres` on the free `free-1-1gb` plan in Bangalore (`do-blr`). Vercel Production and Preview use the encrypted `DATABASE_URL` secret for this service. The URI is never committed or documented here.
+
 ## Environments
 
 - Local: `npm run dev`; without `DATABASE_URL`, a deterministic seeded memory repository keeps the demo usable.
@@ -49,7 +51,7 @@ DEMO_MODE
 
 1. Install from the committed lockfile.
 2. Run `npm run db:generate` only when the schema changes; commit the resulting migration.
-3. Run `npm run db:migrate` and `npm run db:seed` against the Preview PostgreSQL database.
+3. Run `npm run db:migrate` and `npm run db:seed` against the Aiven Preview PostgreSQL database.
 4. Run `npm run build`, `npm run lint`, and `npm run test:backend`.
 5. Push the reviewed commit to `main` in the private GitHub repository.
 6. Verify the Vercel deployment target, browser console, failed network calls, and runtime logs.
