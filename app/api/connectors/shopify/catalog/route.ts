@@ -27,7 +27,7 @@ const mapLiveProduct = (node: LiveProductNode, index: number): Product => {
   };
 };
 
-const fallback = (warning?: string) => Response.json({ source: "demo", mode: "preview-only", store: shopifyPreviewStore, products: demoProducts, warning });
+const fallback = (warning?: string) => Response.json({ source: "demo", mode: "preview-only", store: shopifyPreviewStore, products: demoProducts.map((product) => ({ ...product, cost: null })), warning });
 
 export async function GET() {
   const domain = getEnv("SHOPIFY_STORE_DOMAIN") || shopifyPreviewStore.url.replace("https://", "");

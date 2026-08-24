@@ -7,42 +7,62 @@ Private GitHub repository
         ↓
 Vercel Preview
         ↓
-AgentFlow demo
+AgentFlow server + React surfaces
+        ↓
+PostgreSQL (DATABASE_URL)
 ```
-
-The current application is a TypeScript/React commerce control plane with separate merchant and customer routes, a deterministic policy evaluator, a secure server-side connector boundary, and a seeded Haven Home fallback catalogue. Vercel builds use the documented `vinext` + Nitro adapter; local/Sites builds retain the existing Cloudflare adapter. Secrets are read only by server routes and are never bundled into client code.
 
 ## Environments
 
-- Local: `npm run dev`
-- Preview: the GitHub repository is linked to the Vercel project `agentflow-buildathon`; the current Vercel team role returns 403 when creating a deployment from `main`, so hosted Preview generation remains a release blocker
-- Production: intentionally not promoted until red-team and E2E verification pass
+- Local: `npm run dev`; without `DATABASE_URL`, a deterministic seeded memory repository keeps the demo usable.
+- Preview: Vercel Node runtime with PostgreSQL environment variables configured. The deployment must run the migration and seed process against the selected database before testing.
+- Production: intentionally gated until red-team and E2E verification pass.
 
 ## Environment variable names
 
-Configure the names in `.env.example` through the deployment secret store. Never commit values. NIM and Shopify are optional; the safe deterministic compiler and preview catalogue remain available when live credentials are absent.
+Names only; values belong in the deployment secret store.
+
+```text
+DATABASE_URL
+AGENTFLOW_DEMO_ORGANIZATION_ID
+AGENTFLOW_DEMO_CUSTOMER_ID
+NIM_API_KEY
+NIM_MODEL_ID
+NIM_BASE_URL
+SHOPIFY_STORE_DOMAIN
+SHOPIFY_API_VERSION
+SHOPIFY_STOREFRONT_ACCESS_TOKEN
+SHOPIFY_ADMIN_ACCESS_TOKEN
+PAYMENT_PROVIDER
+CATALOG_PROVIDER
+LLM_PROVIDER
+DEMO_MODE
+```
 
 ## Deployment process
 
-1. Run the local checks and production build.
-2. Confirm the secret scan is clean and inspect staged files.
-3. Push the reviewed source to `main` in the private GitHub repository.
-4. Once the Vercel team role is corrected, the GitHub link will deploy the updated `main`; keep Production promotion gated behind the release checks.
-5. Verify `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, and `/customer`.
-6. Keep Production promotion gated behind red-team and E2E verification.
+1. Install from the committed lockfile.
+2. Run `npm run db:generate` only when the schema changes; commit the resulting migration.
+3. Run `npm run db:migrate` and `npm run db:seed` against the Preview PostgreSQL database.
+4. Run `npm run build`, `npm run lint`, and `npm run test:backend`.
+5. Push the reviewed commit to `main` in the private GitHub repository.
+6. Verify the Vercel Preview, browser console, failed network calls, and runtime logs.
+7. Keep Production promotion gated behind the release checks.
 
 ## Preview verification
 
-Smoke test the landing page, separate merchant dashboard, guided onboarding compiler, discrepancy review, editable workflow, connector status, customer storefront, chat, a custom negotiation, and the absence of unexpected live payment requests. Also inspect browser console errors, failed network requests, Vercel build output, and runtime logs.
+Check `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, `/customer`, `/api/catalogue/products`, and `/api/commerce/evaluate`.
+
+The customer request must contain only a session, product, quantity, and proposed price/discount. Confirm that the response carries a published policy version, matched rules, evidence, and one of `ALLOW`, `COUNTER`, `ESCALATE`, or `DENY`.
 
 ## Rollback procedure
 
-Use Vercel's deployment history to promote the last verified Preview to Production after the release gate is approved. If a Production deployment is ever unhealthy, roll back to the previous verified deployment without changing source history.
+Keep published policy versions immutable. Roll back an application release through Vercel's deployment history, and roll back policy authority by publishing the last verified policy version. Do not rewrite historical audit or transaction references.
 
 ## Current integrations
 
-- Catalogue: server-side Shopify development-store sync through `/api/connectors/shopify/catalog` when a Storefront or Admin token is configured; seeded Haven Home fallback otherwise
-- Payments: Mock / test adapter presentation only; no live payment credentials
-- LLM: NVIDIA NIM server route when `NIM_API_KEY` is configured; deterministic compiler fallback otherwise. The key must be rotated and entered through the deployment secret store.
-- Shopify: Haven Home development storefront connected for the customer preview
-- WooCommerce: not connected
+- Catalogue: canonical Haven Home demo seed in the server repository; PostgreSQL when configured; Shopify sync remains an existing optional connector surface and is not required for this P0 backend.
+- Payments: mock/test presentation only; no live payment action is wired by this task.
+- LLM: NVIDIA NIM may propose Policy IR drafts when `NIM_API_KEY` is present; deterministic compiler fallback otherwise.
+- Shopify: not part of this backend task.
+- WooCommerce: not connected.

@@ -9,15 +9,20 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log node node_modules/vinext/dist/cli.js dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log node node_modules/vinext/dist/cli.js build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log node node_modules/vinext/dist/cli.js start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/backend.test.mjs",
+    "test:backend": "node --import tsx --test tests/backend.test.mjs",
     "test:e2e": "node tests/e2e/betterwright-ui.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .vercel",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "node --import tsx scripts/seed.ts"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
+    "postgres": "^3.4.9",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",

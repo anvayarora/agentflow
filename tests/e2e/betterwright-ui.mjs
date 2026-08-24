@@ -46,7 +46,7 @@ const run = async () => {
       fallbackVisible: await page.getByText("Deterministic fallback").count(),
     };
     await screenshot({ kind: "proof", name: "agentflow-onboarding" });
-    const unresolved = page.getByRole("button", { name: "Mark resolved" });
+    const unresolved = page.getByRole("button", { name: "Apply recommended resolution" });
     while (await unresolved.count()) await unresolved.first().click();
     checks.onboarding.publishedReady = await page.getByText("Ready for the customer preview").count();
 

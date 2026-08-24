@@ -47,3 +47,4 @@ yarn-error.log*
 /test-results/
 /outputs/
 /work/
+/red-team-results.json

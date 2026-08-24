@@ -1,0 +1,38 @@
+import { getDb, isDatabaseConfigured } from "../../db";
+import { customerSegments, customers, organizationMembers, organizations, policies, policyRules, policyVersions, products } from "../../db/schema";
+import { compileDemoPolicyProposal } from "../policy/compiler";
+import { demoOrganizationId } from "./context";
+import { resetCommerceRepositoryForTests } from "./repositories/commerce";
+import { products as displayProducts } from "../catalogue";
+
+export async function seedDatabase() {
+  if (!isDatabaseConfigured()) throw new Error("DATABASE_URL is required to seed AgentFlow PostgreSQL state.");
+  const organizationId = demoOrganizationId() || "org_haven_home_demo";
+  const policyId = "policy-haven-home-commerce";
+  const proposal = compileDemoPolicyProposal("Standard customers can receive up to 10%. Repeat customers can receive up to 15%. Never go below 25% gross margin. Do not discount products below 10 units in stock. Orders above ₹50,000 require merchant approval.", { organizationId, policyId, version: 1 });
+  const policy = { ...proposal.policy, status: "PUBLISHED" as const };
+  const db = getDb();
+
+  await db.transaction(async (tx) => {
+    await tx.insert(organizations).values({ id: organizationId, name: "Haven Home" }).onConflictDoUpdate({ target: organizations.id, set: { name: "Haven Home", updatedAt: new Date() } });
+    await tx.insert(organizationMembers).values({ id: "member-haven-demo", organizationId, actorId: "demo-merchant", role: "owner" }).onConflictDoNothing();
+    await tx.insert(policies).values({ id: policyId, organizationId, name: "Haven Home · Everyday commerce", currentPublishedVersionId: policy.id }).onConflictDoUpdate({ target: policies.id, set: { currentPublishedVersionId: policy.id, updatedAt: new Date() } });
+    await tx.insert(policyVersions).values({ id: policy.id, organizationId, policyId, version: 1, status: "PUBLISHED", currency: "INR", sourcePrompt: policy.sourcePrompt, source: "system", createdBy: "seed", publishedAt: new Date() }).onConflictDoUpdate({ target: policyVersions.id, set: { status: "PUBLISHED", publishedAt: new Date(), updatedAt: new Date() } });
+    for (const product of displayProducts) {
+      await tx.insert(products).values({ id: product.id, organizationId, externalId: `demo-${product.id}`, sku: product.sku, name: product.name, description: product.description, category: product.category, brand: product.id === "desk-041" ? "Aster" : "Haven Home", currency: "INR", listPricePaise: Math.round(product.price * 100), costPaise: product.id === "desk-017" ? null : product.cost === null ? null : Math.round(product.cost * 100), stock: product.stock, attributes: { finish: product.finish, material: product.material, width: product.width, art: product.art }, tags: [product.tag || "catalogue"], imageUrl: null, source: "demo", sourceUpdatedAt: null }).onConflictDoUpdate({ target: products.id, set: { name: product.name, brand: product.id === "desk-041" ? "Aster" : "Haven Home", listPricePaise: Math.round(product.price * 100), costPaise: product.id === "desk-017" ? null : product.cost === null ? null : Math.round(product.cost * 100), stock: product.stock, updatedAt: new Date() } });
+    }
+    const seededCustomers = [
+      { id: "customer-haven-repeat", externalCustomerId: "haven-repeat", emailHash: "demo-repeat", orderCount: 4, lifetimeValuePaise: 2_850_000, lastOrderAt: new Date("2026-07-15"), attributes: { name: "Returning customer" } },
+      { id: "customer-haven-new", externalCustomerId: "haven-new", emailHash: "demo-new", orderCount: 0, lifetimeValuePaise: 0, lastOrderAt: null, attributes: { name: "New customer" } },
+    ];
+    for (const customer of seededCustomers) {
+      await tx.insert(customers).values({ ...customer, organizationId }).onConflictDoUpdate({ target: customers.id, set: { orderCount: customer.orderCount, lifetimeValuePaise: customer.lifetimeValuePaise, lastOrderAt: customer.lastOrderAt, attributes: customer.attributes, updatedAt: new Date() } });
+      await tx.insert(customerSegments).values({ id: `segment-${customer.id}`, organizationId, customerId: customer.id, segment: customer.orderCount > 0 ? "repeat" : "new", source: "derived-order-count" }).onConflictDoUpdate({ target: customerSegments.id, set: { segment: customer.orderCount > 0 ? "repeat" : "new", computedAt: new Date() } });
+    }
+    for (const rule of policy.rules) {
+      await tx.insert(policyRules).values({ id: `${policy.id}::${rule.id}`, organizationId, policyVersionId: policy.id, name: rule.name, description: rule.description, priority: rule.priority, hardConstraint: rule.hardConstraint, scope: rule.scope, conditions: rule.conditions, effect: rule.effect }).onConflictDoUpdate({ target: policyRules.id, set: { name: rule.name, description: rule.description, priority: rule.priority, hardConstraint: rule.hardConstraint, scope: rule.scope, conditions: rule.conditions, effect: rule.effect } });
+    }
+  });
+  resetCommerceRepositoryForTests();
+  return { organizationId, policyVersionId: policy.id, productCount: displayProducts.length, customerCount: 2 };
+}
