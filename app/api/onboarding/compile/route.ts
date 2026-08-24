@@ -59,7 +59,7 @@ export async function POST(request: Request) {
           clearTimeout(timeout);
         }
       } catch (error) {
-        console.error("NIM policy proposal unavailable", error instanceof Error ? error.message : "unknown error");
+        console.warn("NIM policy proposal unavailable", error instanceof Error ? error.message : "unknown error");
       }
     }
     const draft = await getCommerceRepository().createDraft(context, proposal.policy);
