@@ -12,6 +12,7 @@ export const runtime = "nodejs";
 const bodySchema = z.object({ prompt: z.string().trim().min(1).max(12_000), catalogueSummary: z.string().optional() }).strict();
 
 const getEnv = (name: string) => (typeof process === "undefined" ? undefined : process.env[name]);
+const NIM_REQUEST_TIMEOUT_MS = 12_000;
 const extractJson = (content: string) => {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
   const candidate = fenced ?? content.match(/\{[\s\S]*\}/)?.[0];
@@ -43,14 +44,20 @@ export async function POST(request: Request) {
       try {
         const baseUrl = (getEnv("NIM_BASE_URL") || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
         const model = getEnv("NIM_MODEL_ID") || "meta/llama-3.3-70b-instruct";
-        const response = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0.1, max_tokens: 2200, messages: [{ role: "system", content: compilerInstruction }, { role: "user", content: `Merchant intent:\n${parsed.data.prompt}\n\nCatalogue context:\n${(parsed.data.catalogueSummary || "Haven Home catalogue with server-owned price, cost, stock, category, brand, and SKU.").slice(0, 2_000)}` }] }) });
-        if (!response.ok) throw new Error(`NIM returned ${response.status}`);
-        const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-        const content = payload.choices?.[0]?.message?.content;
-        const nim = content ? nimPolicy(extractJson(content), context.organizationId, parsed.data.prompt) : null;
-        if (!nim) throw new Error("NIM proposal did not match the strict Policy IR schema.");
-        const validation = validatePolicy(nim);
-        proposal = { ...fallback, source: "nim", model, policy: nim, discrepancies: validation.discrepancies, valid: validation.valid, summary: validation.valid ? fallback.summary : "NIM proposal requires merchant review before publication." };
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), NIM_REQUEST_TIMEOUT_MS);
+        try {
+          const response = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0.1, max_tokens: 2200, messages: [{ role: "system", content: compilerInstruction }, { role: "user", content: `Merchant intent:\n${parsed.data.prompt}\n\nCatalogue context:\n${(parsed.data.catalogueSummary || "Haven Home catalogue with server-owned price, cost, stock, category, brand, and SKU.").slice(0, 2_000)}` }] }), signal: controller.signal });
+          if (!response.ok) throw new Error(`NIM returned ${response.status}`);
+          const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+          const content = payload.choices?.[0]?.message?.content;
+          const nim = content ? nimPolicy(extractJson(content), context.organizationId, parsed.data.prompt) : null;
+          if (!nim) throw new Error("NIM proposal did not match the strict Policy IR schema.");
+          const validation = validatePolicy(nim);
+          proposal = { ...fallback, source: "nim", model, policy: nim, discrepancies: validation.discrepancies, valid: validation.valid, summary: validation.valid ? fallback.summary : "NIM proposal requires merchant review before publication." };
+        } finally {
+          clearTimeout(timeout);
+        }
       } catch (error) {
         console.error("NIM policy proposal unavailable", error instanceof Error ? error.message : "unknown error");
       }
