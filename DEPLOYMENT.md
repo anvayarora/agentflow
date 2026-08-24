@@ -5,7 +5,7 @@
 ```text
 Private GitHub repository
         ↓
-Vercel Preview
+Vercel Git integration
         ↓
 AgentFlow server + React surfaces
         ↓
@@ -16,7 +16,7 @@ PostgreSQL (DATABASE_URL)
 
 - Local: `npm run dev`; without `DATABASE_URL`, a deterministic seeded memory repository keeps the demo usable.
 - Preview: Vercel Node runtime with PostgreSQL environment variables configured. The deployment must run the migration and seed process against the selected database before testing.
-- Production: intentionally gated until red-team and E2E verification pass.
+- Production: the existing `agentflow-buildathon` Git integration currently auto-promotes pushes to `main` to its Production target. This task did not run a manual promotion; reconfigure the project’s main-branch target or use a release branch if Production must remain gated after red-team/E2E verification.
 
 ## Environment variable names
 
@@ -52,8 +52,8 @@ DEMO_MODE
 3. Run `npm run db:migrate` and `npm run db:seed` against the Preview PostgreSQL database.
 4. Run `npm run build`, `npm run lint`, and `npm run test:backend`.
 5. Push the reviewed commit to `main` in the private GitHub repository.
-6. Verify the Vercel Preview, browser console, failed network calls, and runtime logs.
-7. Keep Production promotion gated behind the release checks.
+6. Verify the Vercel deployment target, browser console, failed network calls, and runtime logs.
+7. Keep manual promotion commands out of the workflow until red-team/E2E checks pass; note that the current existing main-branch integration is already configured for Production.
 
 ## Preview verification
 
