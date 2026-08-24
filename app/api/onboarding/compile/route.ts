@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     }
     const draft = await getCommerceRepository().createDraft(context, proposal.policy);
     const result = onboardingFromProposal({ ...proposal, policy: draft, graph: policyToGraph(draft) }, draft.id);
-    return Response.json({ ...result, draftId: draft.id, mode: proposal.source, message: proposal.source === "nim" ? "NIM proposed a draft. Validate and publish explicitly." : "NIM is not configured; deterministic compiler used for this draft." });
+    return Response.json({ ...result, draftId: draft.id, mode: proposal.source, message: proposal.source === "nim" ? "NIM proposed a draft. Validate and publish explicitly." : apiKey ? "NIM is configured but unavailable; deterministic compiler used for this draft." : "NIM is not configured; deterministic compiler used for this draft." });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to compile policy." }, { status: 400 });
   }
