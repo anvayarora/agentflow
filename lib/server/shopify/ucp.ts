@@ -120,6 +120,16 @@ export function configuredShopDomain(): string {
   return normalizeShopDomain(env()?.SHOPIFY_STORE_DOMAIN || DEFAULT_SHOPIFY_DOMAIN);
 }
 
+function configuredUcpContext(): JsonRecord | undefined {
+  const country = env()?.SHOPIFY_UCP_DEFAULT_COUNTRY?.trim().toUpperCase();
+  const currency = env()?.SHOPIFY_UCP_DEFAULT_CURRENCY?.trim().toUpperCase();
+  if (!country && !currency) return undefined;
+  return {
+    ...(country ? { address_country: country } : {}),
+    ...(currency ? { currency } : {}),
+  };
+}
+
 export function agentProfileUrl(): string {
   const explicit = env()?.SHOPIFY_UCP_PROFILE_URL;
   const publicUrl = env()?.AGENTFLOW_PUBLIC_URL || (env()?.VERCEL_URL ? `https://${env()?.VERCEL_URL}` : undefined);
@@ -359,7 +369,7 @@ export class ShopifyUcpClient {
     return { product: mapProduct(structured.product || structured), ucp: sanitizeContent(structured).ucp };
   }
 
-  async createCart(lineItems: Array<{ variantId: string; quantity: number }>, context?: JsonRecord) {
+  async createCart(lineItems: Array<{ variantId: string; quantity: number }>, context: JsonRecord = configuredUcpContext() || {}) {
     const payload = await this.call("tools/call", { name: "create_cart", arguments: { cart: { line_items: lineItems.map((line) => ({ quantity: line.quantity, item: { id: line.variantId } })), ...(context ? { context } : {}) } } });
     return mapCart(extractCart(payload));
   }
@@ -373,7 +383,7 @@ export class ShopifyUcpClient {
     const current = await this.getCart(id);
     const cart = {
       line_items: desired.lineItems.map((line) => ({ ...(line.lineItemId ? { id: line.lineItemId } : {}), quantity: line.quantity, item: { id: line.variantId } })),
-      ...(desired.context || current.context && Object.keys(current.context).length ? { context: desired.context || current.context } : {}),
+      ...(desired.context || current.context && Object.keys(current.context).length ? { context: desired.context || current.context } : configuredUcpContext() ? { context: configuredUcpContext() } : {}),
       ...(desired.attribution || current.attribution && Object.keys(current.attribution).length ? { attribution: desired.attribution || current.attribution } : {}),
       ...(desired.buyer || current.buyer && Object.keys(current.buyer).length ? { buyer: desired.buyer || current.buyer } : {}),
       ...(desired.signals || current.signals && Object.keys(current.signals).length ? { signals: desired.signals || current.signals } : {}),
