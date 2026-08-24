@@ -1,0 +1,24 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "19d42795913d92ee245ec090b27d7ebd"
+name = "AgentFlow"
+application_url = "https://agentflow-buildathon.vercel.app"
+embedded = false
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = ""
+
+[app_proxy]
+url = "https://agentflow-buildathon.vercel.app/api/shopify/proxy"
+prefix = "apps"
+subpath = "agentflow"
+
+[auth]
+redirect_urls = [ "https://agentflow-buildathon.vercel.app/" ]
+
+[webhooks]
+api_version = "2026-10"
+
+[build]
+automatically_update_urls_on_dev = true

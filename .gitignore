@@ -41,7 +41,6 @@ yarn-error.log*
 .vercel
 
 # Shopify local app state
-shopify/shopify.app.toml
 shopify/.env
 shopify/.env.*
 
