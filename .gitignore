@@ -40,6 +40,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Shopify local app state
+shopify/shopify.app.toml
+shopify/.env
+shopify/.env.*
+
 /dist/
 /.wrangler/
 /build/

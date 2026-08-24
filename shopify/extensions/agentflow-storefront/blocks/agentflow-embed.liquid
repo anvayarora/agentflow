@@ -1,0 +1,31 @@
+<div
+  id="agentflow-storefront-assistant"
+  data-agentflow-shop="{{ shop.permanent_domain | escape }}"
+  data-agentflow-page-type="{{ request.page_type | default: 'other' | escape }}"
+  data-agentflow-product-id="{{ product.id | default: '' | escape }}"
+  data-agentflow-proxy-path="{{ block.settings.proxy_path | default: '/apps/agentflow/chat' | escape }}"
+  data-agentflow-dev-status="{{ block.settings.show_dev_status }}"
+></div>
+
+{% schema %}
+{
+  "name": "AgentFlow assistant",
+  "target": "body",
+  "javascript": "agentflow-embed.js",
+  "stylesheet": "agentflow-embed.css",
+  "settings": [
+    {
+      "type": "text",
+      "id": "proxy_path",
+      "label": "App Proxy path",
+      "default": "/apps/agentflow/chat"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_dev_status",
+      "label": "Show development connection status",
+      "default": true
+    }
+  ]
+}
+{% endschema %}

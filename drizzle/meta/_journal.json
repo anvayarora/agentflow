@@ -8,6 +8,13 @@
       "when": 1787567970614,
       "tag": "0000_pretty_cannonball",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787570000000,
+      "tag": "0001_shopify_session_state",
+      "breakpoints": true
     }
   ]
 }

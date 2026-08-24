@@ -1,8 +1,8 @@
 export const shopifyPreviewStore = {
-  name: "Haven Home Preview",
-  url: "https://u2xwzd-kc.myshopify.com",
-  status: "Connected · development store",
-  detail: "The customer demo can read the connected catalogue or use a safe preview fallback.",
+  name: "Haven Home",
+  url: "https://haven-home-k1gerlw9.myshopify.com",
+  status: "UCP development store",
+  detail: "Live Shopify development storefront · AgentFlow app embed target.",
 };
 
 export const connectorCatalog = [

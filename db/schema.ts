@@ -121,6 +121,12 @@ export const shoppingSessions = pgTable("shopping_sessions", {
   currency: text("currency").notNull(),
   status: text("status").notNull(),
   cart: jsonb("cart").$type<Record<string, unknown>>().notNull(),
+  shopifyShopDomain: text("shopify_shop_domain"),
+  shopifyCustomerId: text("shopify_customer_id"),
+  shopifyCartId: text("shopify_cart_id"),
+  canonicalLineItems: jsonb("canonical_line_items").$type<unknown[]>().notNull().default([]),
+  cartHash: text("cart_hash"),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

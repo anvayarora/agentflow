@@ -40,3 +40,19 @@ When no database is configured, local Preview uses the same domain IR and evalua
 - Money is stored and evaluated as integer paise; percentages use basis points.
 
 Keep real values in ignored `.env.local` or the deployment secret store. `.env.example` contains names and safe defaults only.
+
+## Shopify customer surface
+
+AgentFlow's real buyer-facing entry point is the Shopify development store, not the legacy `/customer` page. The source for the Shopify app embed and proxy configuration lives in `shopify/`.
+
+```text
+Shopify Theme App Embed
+        ↓ same-origin /apps/agentflow/*
+Shopify App Proxy → /api/shopify/proxy/*
+        ↓ signed shop context
+AgentFlow server → UCP catalog/cart + deterministic policy runtime
+```
+
+The server owns Shopify shop tenancy, anonymous session state, and the mapping from a verified Shopify customer ID to a derived AgentFlow customer segment. The browser may send page hints and a session reference, but never policy economics or customer segment claims.
+
+The current bootstrap chat response is intentionally `AGENT_BACKEND_NOT_READY`; it proves the storefront-to-server contract without presenting a canned AI salesperson. NIM orchestration, approvals, payment execution, and the final chat experience remain the next prompt.

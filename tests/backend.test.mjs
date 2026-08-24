@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const [{ compileDemoPolicyProposal }, money, evaluator, repositoryModule, sessionsRoute, evaluateRoute] = await Promise.all([
+const [{ compileDemoPolicyProposal }, money, evaluator, repositoryModule, sessionsRoute, evaluateRoute, proxyModule, profileRoute, shopifyProxyRoute] = await Promise.all([
   import("../lib/policy/compiler.ts"),
   import("../lib/domain/money.ts"),
   import("../lib/policy/evaluator.ts"),
   import("../lib/server/repositories/commerce.ts"),
   import("../app/api/commerce/sessions/route.ts"),
   import("../app/api/commerce/evaluate/route.ts"),
+  import("../lib/server/shopify/proxy.ts"),
+  import("../app/profiles/agentflow-ucp.json/route.ts"),
+  import("../app/api/shopify/proxy/chat/route.ts"),
 ]);
 
 const org = "org_haven_home_demo";
@@ -116,4 +119,56 @@ test("HTTP routes ignore client identity and merchant authority", async () => {
   const result = await valid.json();
   assert.ok(result.policyVersionId);
   assert.ok(["ALLOW", "COUNTER", "ESCALATE", "DENY"].includes(result.outcome));
+});
+
+test("Shopify proxy verification binds shop and customer identity", () => {
+  const secret = "proxy-test-secret";
+  const timestamp = 1_787_570_000;
+  const requestUrl = new URL(`https://agentflow.test/api/shopify/proxy/chat?shop=${encodeURIComponent("haven-home-k1gerlw9.myshopify.com")}&logged_in_customer_id=customer-123&path_prefix=%2Fapps%2Fagentflow&timestamp=${timestamp}`);
+  requestUrl.searchParams.set("signature", proxyModule.calculateShopifyProxySignature(requestUrl, secret));
+  const verified = proxyModule.verifyShopifyProxyRequest(new Request(requestUrl), { secret, nowSeconds: timestamp, expectedShopDomain: "haven-home-k1gerlw9.myshopify.com" });
+  assert.equal(verified.shopDomain, "haven-home-k1gerlw9.myshopify.com");
+  assert.equal(verified.loggedInCustomerId, "customer-123");
+  assert.throws(() => proxyModule.verifyShopifyProxyRequest(new Request(requestUrl.toString().replace("customer-123", "spoofed-customer")), { secret, nowSeconds: timestamp, expectedShopDomain: "haven-home-k1gerlw9.myshopify.com" }), /invalid/i);
+  assert.throws(() => proxyModule.verifyShopifyProxyRequest(new Request(requestUrl), { secret, nowSeconds: timestamp + 301, expectedShopDomain: "haven-home-k1gerlw9.myshopify.com" }), /replay window/i);
+});
+
+test("Shopify UCP profile advertises only AgentFlow catalog and cart capabilities", async () => {
+  const response = await profileRoute.GET();
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ucp.version, "2026-04-08");
+  assert.ok(body.ucp.capabilities["dev.ucp.shopping.cart"]);
+  assert.ok(body.ucp.capabilities["dev.ucp.shopping.catalog.search"]);
+  assert.deepEqual(body.ucp.payment_handlers, {});
+});
+
+test("Shopify sessions bind to the verified customer and never treat USD minor units as INR paise", async () => {
+  repositoryModule.resetCommerceRepositoryForTests();
+  const repository = repositoryModule.getCommerceRepository();
+  const session = await repository.createShopifySession(context, { shopDomain: "haven-home-k1gerlw9.myshopify.com", shopifyCustomerId: "shopify-customer-123", currency: "USD", cart: { id: "gid://shopify/Cart/test", lineItems: [], totals: [{ type: "total", amount: 69995 }], messages: [], raw: {} } });
+  assert.equal(session.shopifyShopDomain, "haven-home-k1gerlw9.myshopify.com");
+  assert.equal(session.shopifyCustomerId, "shopify-customer-123");
+  assert.equal(session.cartTotalPaise, 0);
+});
+
+test("direct Shopify proxy calls without a valid signature are rejected", async () => {
+  process.env.SHOPIFY_API_SECRET = "proxy-test-secret";
+  process.env.SHOPIFY_STORE_DOMAIN = "haven-home-k1gerlw9.myshopify.com";
+  const response = await shopifyProxyRoute.POST(new Request("http://localhost/api/shopify/proxy/chat?shop=haven-home-k1gerlw9.myshopify.com&timestamp=1787570000", { method: "POST", body: JSON.stringify({ message: "hello" }), headers: { "content-type": "application/json" } }));
+  assert.equal(response.status, 401);
+});
+
+test("valid Shopify proxy request creates an anonymous server-owned session", async () => {
+  process.env.SHOPIFY_API_SECRET = "proxy-test-secret";
+  process.env.SHOPIFY_STORE_DOMAIN = "haven-home-k1gerlw9.myshopify.com";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const url = new URL(`http://localhost/api/shopify/proxy/chat?shop=haven-home-k1gerlw9.myshopify.com&path_prefix=%2Fapps%2Fagentflow&timestamp=${timestamp}`);
+  url.searchParams.set("signature", proxyModule.calculateShopifyProxySignature(url, "proxy-test-secret"));
+  const response = await shopifyProxyRoute.POST(new Request(url, { method: "POST", body: JSON.stringify({ message: "Find a desk", storefrontContext: { pageType: "home", hintedProductId: "client-hint" } }), headers: { "content-type": "application/json" } }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.ok(body.sessionId);
+  assert.equal(body.status, "AGENT_BACKEND_NOT_READY");
+  assert.equal(body.connection.customerContext, "anonymous_shopify_customer");
 });

@@ -1,0 +1,16 @@
+name = "AgentFlow"
+client_id = "SET_BY_SHOPIFY_CLI_AFTER_APP_INIT"
+application_url = "https://YOUR-AGENTFLOW-DOMAIN"
+embedded = false
+
+[access_scopes]
+scopes = ""
+
+[app_proxy]
+url = "https://YOUR-AGENTFLOW-DOMAIN/api/shopify/proxy"
+prefix = "apps"
+subpath = "agentflow"
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true

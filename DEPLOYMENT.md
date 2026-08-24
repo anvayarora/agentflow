@@ -33,6 +33,12 @@ SHOPIFY_STORE_DOMAIN
 SHOPIFY_API_VERSION
 SHOPIFY_STOREFRONT_ACCESS_TOKEN
 SHOPIFY_ADMIN_ACCESS_TOKEN
+SHOPIFY_API_SECRET
+SHOPIFY_UCP_PROFILE_URL
+AGENTFLOW_PUBLIC_URL
+SHOPIFY_UCP_VERSION
+SHOPIFY_APP_PROXY_PREFIX
+SHOPIFY_APP_PROXY_SUBPATH
 PAYMENT_PROVIDER
 CATALOG_PROVIDER
 LLM_PROVIDER
@@ -51,7 +57,7 @@ DEMO_MODE
 
 ## Preview verification
 
-Check `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, `/customer`, `/api/catalogue/products`, and `/api/commerce/evaluate`.
+Check `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, `/customer` (legacy reference only), `/profiles/agentflow-ucp.json`, `/api/catalogue/products`, `/api/commerce/evaluate`, and `/api/shopify/ucp/diagnostics`.
 
 The customer request must contain only a session, product, quantity, and proposed price/discount. Confirm that the response carries a published policy version, matched rules, evidence, and one of `ALLOW`, `COUNTER`, `ESCALATE`, or `DENY`.
 
@@ -61,8 +67,16 @@ Keep published policy versions immutable. Roll back an application release throu
 
 ## Current integrations
 
-- Catalogue: canonical Haven Home demo seed in the server repository; PostgreSQL when configured; Shopify sync remains an existing optional connector surface and is not required for this P0 backend.
+- Catalogue: Shopify UCP is the buyer-facing source when verified; the canonical Haven Home seed remains the safe local fallback and private-cost join.
 - Payments: mock/test presentation only; no live payment action is wired by this task.
 - LLM: NVIDIA NIM may propose Policy IR drafts when `NIM_API_KEY` is present; deterministic compiler fallback otherwise.
-- Shopify: not part of this backend task.
+- Shopify: Haven Home development store target, UCP 2026-04-08 catalog/cart connector, signed App Proxy contract, and Theme App Extension source under `shopify/`.
 - WooCommerce: not connected.
+
+## Shopify storefront handoff
+
+The customer surface is a Shopify Theme App Extension app embed. It calls `/apps/agentflow/chat`, which Shopify proxies to `/api/shopify/proxy/chat`. AgentFlow verifies the Shopify HMAC signature, binds the verified shop domain to the Haven Home organization, and derives customer context only from Shopify's signed `logged_in_customer_id`.
+
+UCP calls are server-only and use the discovered merchant endpoint. Product and cart payloads are treated as commerce data, never as policy authority. Private cost and policy rules are not sent to the widget.
+
+The committed `shopify/shopify.app.toml.example` is intentionally placeholder-only. One-time Shopify Partner actions remain: authenticate Shopify CLI, create/link the development app, fill the deployed AgentFlow URL, deploy the Theme App Extension, configure the App Proxy, and enable the app embed in the Haven Home Theme Editor. Do not commit the generated local `shopify.app.toml`, API secret, or storefront password.

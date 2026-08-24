@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "../../../db";
 import { auditEvents, customers, policies, policyRules, policyVersions, products, shoppingSessions } from "../../../db/schema";
@@ -10,8 +11,24 @@ import { policyVersionSchema, type PolicyVersionIR } from "../../policy/schema";
 import { resolvePolicyDiscrepancy, validatePolicy, type PolicyDiscrepancy, type PolicyValidationResult } from "../../policy/validator";
 import type { TrustedCommerceSession } from "../../policy/evaluator";
 import type { TrustedRequestContext } from "../context";
+import type { ShopifyUcpCart } from "../shopify/ucp";
 
-export type SessionRecord = TrustedCommerceSession & { customerId: string };
+export type SessionRecord = TrustedCommerceSession & {
+  customerId: string;
+  shopifyShopDomain?: string | null;
+  shopifyCustomerId?: string | null;
+  shopifyCartId?: string | null;
+  canonicalLineItems?: unknown[];
+  cartHash?: string | null;
+  lastSyncedAt?: string | null;
+};
+
+export type ShopifySessionInput = {
+  shopDomain: string;
+  shopifyCustomerId?: string;
+  currency?: string;
+  cart?: ShopifyUcpCart;
+};
 
 export type OfferRecord = {
   id: string;
@@ -30,6 +47,7 @@ export type CommerceRepository = {
   getProduct(context: TrustedRequestContext, productId: string): Promise<CanonicalProduct | null>;
   getCustomer(context: TrustedRequestContext, customerId?: string): Promise<CanonicalCustomer | null>;
   createSession(context: TrustedRequestContext, customerId?: string): Promise<SessionRecord>;
+  createShopifySession(context: TrustedRequestContext, input: ShopifySessionInput): Promise<SessionRecord>;
   getSession(context: TrustedRequestContext, sessionId: string): Promise<SessionRecord | null>;
   getCurrentPolicy(context: TrustedRequestContext): Promise<PolicyVersionIR | null>;
   getPolicyVersion(context: TrustedRequestContext, versionId: string): Promise<PolicyVersionIR | null>;
@@ -46,6 +64,8 @@ export type CommerceRepository = {
 
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
+const externalCustomerId = (shopDomain: string, shopifyCustomerId: string) => `shopify:${shopDomain}:${shopifyCustomerId}`;
+const customerIdForExternal = (value: string) => `customer-shopify-${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 
 function demoProducts(organizationId: string): CanonicalProduct[] {
   return displayProducts.map((product) => ({
@@ -114,10 +134,30 @@ class MemoryCommerceRepository implements CommerceRepository {
   async listProducts(context: TrustedRequestContext) { return this.state(context).products; }
   async getProduct(context: TrustedRequestContext, productId: string) { return this.state(context).products.find((product) => product.id === productId) || null; }
   async getCustomer(context: TrustedRequestContext, customerId = "customer-haven-repeat") { return this.state(context).customers.find((customer) => customer.id === customerId) || null; }
+  async getOrCreateExternalCustomer(context: TrustedRequestContext, shopDomain: string, shopifyCustomerId: string) {
+    const externalId = externalCustomerId(shopDomain, shopifyCustomerId);
+    const existing = this.state(context).customers.find((customer) => customer.externalCustomerId === externalId);
+    if (existing) return existing;
+    const customer: CanonicalCustomer = { id: customerIdForExternal(externalId), organizationId: context.organizationId, externalCustomerId: externalId, emailHash: null, orderCount: 0, lifetimeValuePaise: 0, lastOrderAt: null, attributes: { source: "shopify", shopDomain } };
+    this.state(context).customers.push(customer);
+    return customer;
+  }
   async createSession(context: TrustedRequestContext, customerId = "customer-haven-repeat") {
     const customer = await this.getCustomer(context, customerId);
     if (!customer) throw new Error("Customer is not available in this organization.");
     const session: SessionRecord = { id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: "INR", status: "OPEN", cartTotalPaise: 0 };
+    this.state(context).sessions.set(session.id, session);
+    return session;
+  }
+  async createShopifySession(context: TrustedRequestContext, input: ShopifySessionInput) {
+    const customer = input.shopifyCustomerId ? await this.getOrCreateExternalCustomer(context, input.shopDomain, input.shopifyCustomerId) : await this.getCustomer(context, "customer-haven-new");
+    if (!customer) throw new Error("Anonymous Shopify customer is not available in this organization.");
+    const cartTotalMinorUnits = input.cart?.totals.find((total) => total.type === "total")?.amount || 0;
+    const cartTotal = input.currency === "INR" || input.cart?.currency === "INR" ? cartTotalMinorUnits : 0;
+    const session: SessionRecord = {
+      id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: input.currency || input.cart?.currency || "USD", status: "OPEN", cartTotalPaise: cartTotal,
+      shopifyShopDomain: input.shopDomain, shopifyCustomerId: input.shopifyCustomerId || null, shopifyCartId: input.cart?.id || null, canonicalLineItems: input.cart?.lineItems || [], cartHash: input.cart ? JSON.stringify(input.cart.lineItems) : null, lastSyncedAt: now(),
+    };
     this.state(context).sessions.set(session.id, session);
     return session;
   }
@@ -186,6 +226,12 @@ function customerFromRow(row: typeof customers.$inferSelect): CanonicalCustomer 
   return { ...row, attributes: row.attributes || {} };
 }
 
+function sessionFromRow(row: Pick<typeof shoppingSessions.$inferSelect, "id" | "organizationId" | "customerId" | "currency" | "status" | "cart" | "shopifyShopDomain" | "shopifyCustomerId" | "shopifyCartId" | "canonicalLineItems" | "cartHash" | "lastSyncedAt">): SessionRecord {
+  const cart = typeof row.cart === "object" && row.cart ? row.cart : {};
+  const total = typeof cart.totalPaise === "number" ? cart.totalPaise : 0;
+  return { id: row.id, organizationId: row.organizationId, customerId: row.customerId, currency: row.currency, status: row.status, cartTotalPaise: total, shopifyShopDomain: row.shopifyShopDomain, shopifyCustomerId: row.shopifyCustomerId, shopifyCartId: row.shopifyCartId, canonicalLineItems: row.canonicalLineItems || [], cartHash: row.cartHash, lastSyncedAt: row.lastSyncedAt?.toISOString() || null };
+}
+
 class PostgresCommerceRepository implements CommerceRepository {
   async listProducts(context: TrustedRequestContext) {
     const rows = await getDb().select().from(products).where(eq(products.organizationId, context.organizationId));
@@ -207,12 +253,29 @@ class PostgresCommerceRepository implements CommerceRepository {
     await getDb().insert(shoppingSessions).values(session);
     return { id: session.id, organizationId: session.organizationId, customerId: session.customerId, currency: session.currency, status: session.status, cartTotalPaise: 0 };
   }
+  private async getOrCreateExternalCustomer(context: TrustedRequestContext, shopDomain: string, shopifyCustomerId: string) {
+    const externalId = externalCustomerId(shopDomain, shopifyCustomerId);
+    const existing = await getDb().select().from(customers).where(and(eq(customers.organizationId, context.organizationId), eq(customers.externalCustomerId, externalId))).limit(1);
+    if (existing[0]) return customerFromRow(existing[0]);
+    const customer = { id: customerIdForExternal(externalId), organizationId: context.organizationId, externalCustomerId: externalId, emailHash: null, orderCount: 0, lifetimeValuePaise: 0, lastOrderAt: null, attributes: { source: "shopify", shopDomain } };
+    await getDb().insert(customers).values(customer).onConflictDoNothing();
+    const created = await getDb().select().from(customers).where(and(eq(customers.organizationId, context.organizationId), eq(customers.externalCustomerId, externalId))).limit(1);
+    return created[0] ? customerFromRow(created[0]) : null;
+  }
+  async createShopifySession(context: TrustedRequestContext, input: ShopifySessionInput) {
+    const customer = input.shopifyCustomerId ? await this.getOrCreateExternalCustomer(context, input.shopDomain, input.shopifyCustomerId) : await this.getCustomer(context, "customer-haven-new");
+    if (!customer) throw new Error("Anonymous Shopify customer is not available in this organization.");
+    const cartTotalMinorUnits = input.cart?.totals.find((total) => total.type === "total")?.amount || 0;
+    const cartTotal = input.currency === "INR" || input.cart?.currency === "INR" ? cartTotalMinorUnits : 0;
+    const session = { id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: input.currency || input.cart?.currency || "USD", status: "OPEN", cart: { totalPaise: cartTotal, totalMinorUnits: cartTotalMinorUnits, source: "shopify_ucp" }, shopifyShopDomain: input.shopDomain, shopifyCustomerId: input.shopifyCustomerId || null, shopifyCartId: input.cart?.id || null, canonicalLineItems: input.cart?.lineItems || [], cartHash: input.cart ? JSON.stringify(input.cart.lineItems) : null, lastSyncedAt: new Date() };
+    await getDb().insert(shoppingSessions).values(session);
+    return sessionFromRow(session);
+  }
   async getSession(context: TrustedRequestContext, sessionId: string) {
     const rows = await getDb().select().from(shoppingSessions).where(and(eq(shoppingSessions.organizationId, context.organizationId), eq(shoppingSessions.id, sessionId))).limit(1);
     const row = rows[0];
     if (!row) return null;
-    const total = typeof row.cart === "object" && row.cart && typeof row.cart.totalPaise === "number" ? row.cart.totalPaise : 0;
-    return { id: row.id, organizationId: row.organizationId, customerId: row.customerId, currency: row.currency, status: row.status, cartTotalPaise: total };
+    return sessionFromRow(row);
   }
   private async loadVersion(context: TrustedRequestContext, versionId: string) {
     const rows = await getDb().select().from(policyVersions).where(and(eq(policyVersions.organizationId, context.organizationId), eq(policyVersions.id, versionId))).limit(1);
