@@ -29,6 +29,12 @@ export async function createCheckout(context: TrustedRequestContext, input: { se
   const repository = getCommerceRepository();
   const session = await repository.getSession(context, input.sessionId);
   if (!session) throw new Error("Commerce session was not found.");
+  const store = getRuntimeStore();
+  const existing = (await store.list<TransactionPayload>(context, runtimeKinds.transaction)).find((record) => record.payload.idempotencyKey === input.idempotencyKey && record.payload.sessionId === session.id);
+  if (existing) {
+    const existingPayment = (await store.list<PaymentPayload>(context, runtimeKinds.payment)).find((record) => record.payload.transactionId === existing.id);
+    return { transactionId: existing.id, paymentId: existingPayment?.id, status: existing.payload.status, provider: existing.payload.provider, providerOrderId: existing.payload.providerOrderId, amountPaise: existing.payload.amountPaise, currency: existing.payload.currency, publicKeyId: getPublicPaymentKey() };
+  }
   const offer = await findAcceptedOffer(context, session.id);
   if (!offer || offer.payload.status !== "ACCEPTED" || offer.payload.approvedPricePaise === undefined) {
     await securityAudit(context, { eventType: "UNAUTHORIZED_CHECKOUT_REJECTED", entityType: "checkout", entityId: session.id, sessionId: session.id, metadata: { reason: "accepted_offer_required" } });
@@ -43,16 +49,6 @@ export async function createCheckout(context: TrustedRequestContext, input: { se
   if (!cartContainsOffer(cart, offer.payload)) {
     await securityAudit(context, { eventType: "UNAUTHORIZED_CHECKOUT_REJECTED", entityType: "checkout", entityId: session.id, sessionId: session.id, policyVersionId: offer.payload.policyVersionId, metadata: { reason: "accepted_offer_product_not_in_canonical_cart", offerId: offer.id } });
     throw new Error("The accepted offer is not bound to an item in the current cart.");
-  }
-  const store = getRuntimeStore();
-  const existing = (await store.list<TransactionPayload>(context, runtimeKinds.transaction)).find((record) => record.payload.idempotencyKey === input.idempotencyKey && record.payload.sessionId === session.id);
-  if (existing) {
-    if (existing.payload.cartHash !== cart.cartHash || existing.payload.offerId !== offer.id || existing.payload.amountPaise !== authorizedAmountPaise) {
-      await securityAudit(context, { eventType: "UNAUTHORIZED_CHECKOUT_REJECTED", entityType: "transaction", entityId: existing.id, sessionId: session.id, policyVersionId: offer.payload.policyVersionId, metadata: { reason: "idempotency_key_bound_to_different_authority" } });
-      throw new Error("This idempotency key is bound to a different authorized checkout.");
-    }
-    const existingPayment = (await store.list<PaymentPayload>(context, runtimeKinds.payment)).find((record) => record.payload.transactionId === existing.id);
-    return { transactionId: existing.id, paymentId: existingPayment?.id, status: existing.payload.status, provider: existing.payload.provider, providerOrderId: existing.payload.providerOrderId, amountPaise: existing.payload.amountPaise, currency: existing.payload.currency, publicKeyId: getPublicPaymentKey() };
   }
   if (offer.payload.overrideId) {
     const override = await store.get<import("./offer-service").OverridePayload>(context, runtimeKinds.override, offer.payload.overrideId);

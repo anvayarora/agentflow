@@ -219,6 +219,9 @@ test("offer acceptance and checkout are server-owned and idempotent", async () =
   const checkout = await checkoutModule.createCheckout(context, { sessionId: session.id, idempotencyKey: "idempotency-test-001" });
   const duplicate = await checkoutModule.createCheckout(context, { sessionId: session.id, idempotencyKey: "idempotency-test-001" });
   assert.equal(duplicate.transactionId, checkout.transactionId);
+  await runtimeModule.getRuntimeStore().update(context, runtimeModule.runtimeKinds.offer, offer.offerId, { expiresAt: new Date(0).toISOString() });
+  const duplicateAfterOfferExpiry = await checkoutModule.createCheckout(context, { sessionId: session.id, idempotencyKey: "idempotency-test-001" });
+  assert.equal(duplicateAfterOfferExpiry.transactionId, checkout.transactionId);
   assert.equal(paymentModule.mockPaymentCallCount(), 1);
   assert.equal((await checkoutModule.getPaymentStatus(context, checkout.transactionId)).status, "CREATED");
 });
