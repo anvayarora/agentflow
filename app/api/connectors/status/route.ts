@@ -5,6 +5,8 @@ const env = () => (typeof process === "undefined" ? undefined : process.env);
 
 export async function GET() {
   const values = env();
+  const paymentProvider = (values?.PAYMENT_PROVIDER || "").toLowerCase();
+  const razorpayTestConfigured = paymentProvider === "razorpay" && Boolean(values?.RAZORPAY_KEY_ID && values?.RAZORPAY_KEY_SECRET && values.RAZORPAY_KEY_ID.startsWith("rzp_test_"));
   let shopifyUcp: { status: string; version?: string; endpoint?: string; capabilities?: string[]; tools?: string[]; reason?: string } = { status: "SHOPIFY_UCP_NOT_VERIFIED" };
   try {
     const client = getShopifyUcpClient();
@@ -30,7 +32,7 @@ export async function GET() {
         catalogEndpoint: "/api/shopify/ucp/catalog/search",
         ucp: shopifyUcp,
       },
-      payments: { configured: false, mode: "mock test adapter" },
+      payments: { configured: razorpayTestConfigured, mode: razorpayTestConfigured ? "razorpay test mode" : paymentProvider === "mock" ? "mock test adapter" : "not configured" },
     },
   });
 }
