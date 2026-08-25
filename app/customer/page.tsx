@@ -83,11 +83,18 @@ export default function CustomerPage() {
     if (response.ok) setDecision(result);
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const text = chatInput.trim();
     if (!text) return;
-    setMessages((current) => [...current, { role: "user", text }, { role: "assistant", text: "I’d compare the Walnut Compact and Dark Oak desks first. You can also test a custom offer below and I’ll show you exactly how the store responds." }]);
+    setMessages((current) => [...current, { role: "user", text }]);
     setChatInput("");
+    try {
+      const response = await fetch("/api/commerce/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: sessionId || undefined, message: text, storefrontContext: { pageType: "home", url: window.location.href } }) });
+      const payload = await response.json() as { message?: string; error?: string };
+      setMessages((current) => [...current, { role: "assistant", text: response.ok ? payload.message || "I can help you explore the catalogue." : payload.error || "The storefront assistant is unavailable." }]);
+    } catch {
+      setMessages((current) => [...current, { role: "assistant", text: "The storefront assistant is unavailable right now." }]);
+    }
   };
 
   return <main className="customer-page"><header className="customer-nav"><Link className="customer-brand" href="/"><span className="customer-brand-mark">H</span><span><strong>Haven Home</strong><small>Connected customer demo</small></span></Link><div className="customer-nav-links"><a href="#catalogue">Catalogue</a><a href="#conversation">Ask Haven</a><a href={shopifyPreviewStore.url} target="_blank" rel="noreferrer">Storefront ↗</a></div><div className="customer-nav-actions"><a className="merchant-link" href="/merchant">Merchant workspace ↗</a><button className="basket-button" type="button">Basket <span>{basket ? 1 : 0}</span></button></div></header>

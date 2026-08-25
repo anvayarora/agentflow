@@ -15,6 +15,13 @@
       "when": 1787570000000,
       "tag": "0001_shopify_session_state",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787658309876,
+      "tag": "0002_prompt2_runtime_records",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,8 @@
     "db:seed": "node --import tsx scripts/seed.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.37",
+    "ai": "^7.0.79",
     "drizzle-orm": "0.45.2",
     "postgres": "^3.4.9",
     "react": "19.2.6",

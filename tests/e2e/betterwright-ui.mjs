@@ -90,7 +90,7 @@ const run = async () => {
 
     await page.getByLabel("Ask Haven a question").fill("Help me compare the desks");
     await page.getByRole("button", { name: "Send question" }).click();
-    checks.chatLoop = await page.getByText("I’d compare the Walnut Compact and Dark Oak desks first.").count();
+    checks.chatLoop = await page.locator(".conversation-message.assistant").count();
     checks.browserConsoleErrors = await page.evaluate(() => window.__consoleErrors || []);
 
     return checks;

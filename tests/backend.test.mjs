@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const [{ compileDemoPolicyProposal }, money, evaluator, repositoryModule, sessionsRoute, evaluateRoute, proxyModule, profileRoute, shopifyProxyRoute] = await Promise.all([
+const [{ compileDemoPolicyProposal }, money, evaluator, repositoryModule, sessionsRoute, evaluateRoute, proxyModule, profileRoute, shopifyProxyRoute, runtimeModule, cartModule, catalogModule, offerModule, checkoutModule, simulationModule, redTeamModule, paymentModule] = await Promise.all([
   import("../lib/policy/compiler.ts"),
   import("../lib/domain/money.ts"),
   import("../lib/policy/evaluator.ts"),
@@ -11,6 +11,14 @@ const [{ compileDemoPolicyProposal }, money, evaluator, repositoryModule, sessio
   import("../lib/server/shopify/proxy.ts"),
   import("../app/profiles/agentflow-ucp.json/route.ts"),
   import("../app/api/shopify/proxy/chat/route.ts"),
+  import("../lib/server/runtime/store.ts"),
+  import("../lib/commerce/cart.ts"),
+  import("../lib/commerce/catalog-service.ts"),
+  import("../lib/commerce/offer-service.ts"),
+  import("../lib/commerce/checkout-service.ts"),
+  import("../lib/simulation/engine.ts"),
+  import("../lib/security/red-team.ts"),
+  import("../lib/payments/payment-adapter.ts"),
 ]);
 
 const org = "org_haven_home_demo";
@@ -165,10 +173,75 @@ test("valid Shopify proxy request creates an anonymous server-owned session", as
   const timestamp = Math.floor(Date.now() / 1000);
   const url = new URL(`http://localhost/api/shopify/proxy/chat?shop=haven-home-k1gerlw9.myshopify.com&path_prefix=%2Fapps%2Fagentflow&timestamp=${timestamp}`);
   url.searchParams.set("signature", proxyModule.calculateShopifyProxySignature(url, "proxy-test-secret"));
+  const previousNimKey = process.env.NIM_API_KEY;
+  delete process.env.NIM_API_KEY;
   const response = await shopifyProxyRoute.POST(new Request(url, { method: "POST", body: JSON.stringify({ message: "Find a desk", storefrontContext: { pageType: "home", hintedProductId: "client-hint" } }), headers: { "content-type": "application/json" } }));
-  assert.equal(response.status, 200);
+  if (previousNimKey) process.env.NIM_API_KEY = previousNimKey;
+  assert.equal(response.status, 503);
   const body = await response.json();
   assert.ok(body.sessionId);
-  assert.equal(body.status, "AGENT_BACKEND_NOT_READY");
+  assert.equal(body.status, "PROVIDER_UNAVAILABLE");
+  assert.notEqual(body.status, "AGENT_BACKEND_NOT_READY");
   assert.equal(body.connection.customerContext, "anonymous_shopify_customer");
+});
+
+test("runtime records persist across independent service instances with tenant scope", async () => {
+  runtimeModule.resetRuntimeStoreForTests();
+  const store = runtimeModule.getRuntimeStore();
+  await store.put(context, { id: "persistent-pref", kind: runtimeModule.runtimeKinds.shopperPreferences, status: "ACTIVE", payload: { budgetMaxPaise: 500_000, categories: [] } });
+  const reread = await new runtimeModule.RuntimeStore().get(context, runtimeModule.runtimeKinds.shopperPreferences, "persistent-pref");
+  assert.equal(reread.payload.budgetMaxPaise, 500_000);
+  assert.equal(await runtimeModule.getRuntimeStore().get({ ...context, organizationId: "other-org" }, runtimeModule.runtimeKinds.shopperPreferences, "persistent-pref"), null);
+});
+
+test("canonical cart hash binds accepted offers to the exact cart", async () => {
+  const first = cartModule.hashCart({ currency: "INR", lines: [{ variantId: "v-1", quantity: 1, unitPricePaise: 100_00 }] });
+  const reordered = cartModule.hashCart({ currency: "INR", lines: [{ variantId: "v-1", quantity: 1, unitPricePaise: 100_00 }] });
+  const changed = cartModule.hashCart({ currency: "INR", lines: [{ variantId: "v-1", quantity: 2, unitPricePaise: 100_00 }] });
+  assert.equal(first, reordered);
+  assert.notEqual(first, changed);
+});
+
+test("offer acceptance and checkout are server-owned and idempotent", async () => {
+  repositoryModule.resetCommerceRepositoryForTests();
+  runtimeModule.resetRuntimeStoreForTests();
+  process.env.PAYMENT_PROVIDER = "mock";
+  paymentModule.resetMockPaymentForTests();
+  const repository = repositoryModule.getCommerceRepository();
+  const session = await repository.createSession(context, "customer-haven-repeat");
+  await cartModule.hashCart({ currency: "INR", lines: [] });
+  await catalogModule.updateCart(context, session, [{ variantId: "desk-032", quantity: 1 }]);
+  const offer = await offerModule.requestOffer(context, { sessionId: session.id, productId: "desk-032", quantity: 1, requestedDiscountBps: 500 });
+  assert.equal(offer.outcome, "ALLOW");
+  await offerModule.acceptOffer(context, offer.offerId);
+  const checkout = await checkoutModule.createCheckout(context, { sessionId: session.id, idempotencyKey: "idempotency-test-001" });
+  const duplicate = await checkoutModule.createCheckout(context, { sessionId: session.id, idempotencyKey: "idempotency-test-001" });
+  assert.equal(duplicate.transactionId, checkout.transactionId);
+  assert.equal(paymentModule.mockPaymentCallCount(), 1);
+  assert.equal((await checkoutModule.getPaymentStatus(context, checkout.transactionId)).status, "CREATED");
+});
+
+test("missing economics creates approval state and merchant counter is scoped", async () => {
+  repositoryModule.resetCommerceRepositoryForTests();
+  runtimeModule.resetRuntimeStoreForTests();
+  const repository = repositoryModule.getCommerceRepository();
+  const shopper = await repository.createSession(context, "customer-haven-repeat");
+  const offer = await offerModule.requestOffer(context, { sessionId: shopper.id, productId: "desk-017", quantity: 1, requestedDiscountBps: 500 });
+  assert.equal(offer.outcome, "ESCALATE");
+  const approval = await offerModule.requestApproval(context, offer.offerId);
+  const merchant = { ...context, actorType: "merchant", actorId: "merchant-qa" };
+  const decision = await offerModule.decideApproval(merchant, approval.approvalId, "COUNTER", 100_00);
+  assert.equal(decision.status, "COUNTERED");
+  const storedOffer = await runtimeModule.getRuntimeStore().get(merchant, runtimeModule.runtimeKinds.offer, offer.offerId);
+  assert.equal(storedOffer.payload.status, "COUNTERED");
+  assert.ok(storedOffer.payload.overrideId);
+});
+
+test("simulation and red-team checks reuse the deterministic runtime", async () => {
+  repositoryModule.resetCommerceRepositoryForTests();
+  runtimeModule.resetRuntimeStoreForTests();
+  const simulation = await simulationModule.runSimulation(context, [{ id: "case-1", productId: "desk-032", customerId: "customer-haven-repeat", quantity: 1, requestedDiscountBps: 8000 }]);
+  assert.ok(["COUNTER", "ESCALATE"].includes(simulation.results[0].outcome));
+  const redTeam = await redTeamModule.runRedTeamSuite(context);
+  assert.equal(redTeam.passed, true);
 });

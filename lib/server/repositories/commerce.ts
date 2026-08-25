@@ -30,6 +30,14 @@ export type ShopifySessionInput = {
   cart?: ShopifyUcpCart;
 };
 
+export type SessionCartUpdate = {
+  currency?: string;
+  cartTotalPaise: number;
+  shopifyCartId?: string | null;
+  canonicalLineItems: unknown[];
+  cartHash?: string | null;
+};
+
 export type OfferRecord = {
   id: string;
   organizationId: string;
@@ -49,6 +57,7 @@ export type CommerceRepository = {
   createSession(context: TrustedRequestContext, customerId?: string): Promise<SessionRecord>;
   createShopifySession(context: TrustedRequestContext, input: ShopifySessionInput): Promise<SessionRecord>;
   getSession(context: TrustedRequestContext, sessionId: string): Promise<SessionRecord | null>;
+  updateSessionCart(context: TrustedRequestContext, sessionId: string, update: SessionCartUpdate): Promise<SessionRecord | null>;
   getCurrentPolicy(context: TrustedRequestContext): Promise<PolicyVersionIR | null>;
   getPolicyVersion(context: TrustedRequestContext, versionId: string): Promise<PolicyVersionIR | null>;
   createDraft(context: TrustedRequestContext, proposed?: PolicyVersionIR): Promise<PolicyVersionIR>;
@@ -162,6 +171,13 @@ class MemoryCommerceRepository implements CommerceRepository {
     return session;
   }
   async getSession(context: TrustedRequestContext, sessionId: string) { return this.state(context).sessions.get(sessionId) || null; }
+  async updateSessionCart(context: TrustedRequestContext, sessionId: string, update: SessionCartUpdate) {
+    const current = await this.getSession(context, sessionId);
+    if (!current) return null;
+    const next = { ...current, ...(update.currency ? { currency: update.currency } : {}), cartTotalPaise: update.cartTotalPaise, shopifyCartId: update.shopifyCartId === undefined ? current.shopifyCartId : update.shopifyCartId, canonicalLineItems: update.canonicalLineItems, cartHash: update.cartHash === undefined ? current.cartHash : update.cartHash, lastSyncedAt: now() };
+    this.state(context).sessions.set(sessionId, next);
+    return next;
+  }
   async getCurrentPolicy(context: TrustedRequestContext) { return this.state(context).policies.get(this.state(context).currentPolicyId) || null; }
   async getPolicyVersion(context: TrustedRequestContext, versionId: string) { return this.state(context).policies.get(versionId) || null; }
   async createDraft(context: TrustedRequestContext, proposed?: PolicyVersionIR) {
@@ -276,6 +292,12 @@ class PostgresCommerceRepository implements CommerceRepository {
     const row = rows[0];
     if (!row) return null;
     return sessionFromRow(row);
+  }
+  async updateSessionCart(context: TrustedRequestContext, sessionId: string, update: SessionCartUpdate) {
+    const current = await this.getSession(context, sessionId);
+    if (!current) return null;
+    await getDb().update(shoppingSessions).set({ ...(update.currency ? { currency: update.currency } : {}), cart: { totalPaise: update.cartTotalPaise }, shopifyCartId: update.shopifyCartId === undefined ? current.shopifyCartId : update.shopifyCartId, canonicalLineItems: update.canonicalLineItems, cartHash: update.cartHash === undefined ? current.cartHash : update.cartHash, lastSyncedAt: new Date(), updatedAt: new Date() }).where(and(eq(shoppingSessions.organizationId, context.organizationId), eq(shoppingSessions.id, sessionId)));
+    return this.getSession(context, sessionId);
   }
   private async loadVersion(context: TrustedRequestContext, versionId: string) {
     const rows = await getDb().select().from(policyVersions).where(and(eq(policyVersions.organizationId, context.organizationId), eq(policyVersions.id, versionId))).limit(1);

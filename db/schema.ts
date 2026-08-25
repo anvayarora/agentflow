@@ -241,6 +241,24 @@ export const simulationCases = pgTable("simulation_cases", {
   createdAt: createdAt(),
 });
 
+/**
+ * Durable execution state for the storefront agent. Domain services validate
+ * each payload before writing it; the organization/kind/id key keeps every
+ * runtime object tenant-scoped and makes retries idempotent.
+ */
+export const runtimeRecords = pgTable("runtime_records", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  kind: text("kind").notNull(),
+  status: text("status").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => ({
+  organizationKindIdUnique: uniqueIndex("runtime_records_organization_kind_id_idx").on(table.organizationId, table.kind, table.id),
+}));
+
 export type Organization = typeof organizations.$inferSelect;
 export type ProductRecord = typeof products.$inferSelect;
 export type CustomerRecord = typeof customers.$inferSelect;
