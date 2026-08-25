@@ -15,7 +15,10 @@ export function getDb(): AppDb {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required for PostgreSQL-backed commerce operations.");
   if (!database) {
-    client = postgres(url, { prepare: false, max: 5 });
+    // Vercel can fan out many short-lived function instances while the Aiven
+    // free tier has a small connection budget. Keep one bounded connection per
+    // instance so a browser loop cannot exhaust the database.
+    client = postgres(url, { prepare: false, max: 1, idle_timeout: 20, max_lifetime: 300, connect_timeout: 10 });
     database = drizzle(client, { schema });
   }
   return database;
