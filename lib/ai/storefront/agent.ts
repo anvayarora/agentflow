@@ -30,7 +30,7 @@ const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const safeMessage = "I’m having trouble completing that request right now. Please try again in a moment.";
 
 function customerFacingMessage(text: string, products: unknown[]) {
-  const internalToolNarration = /function call|json object|search_products|tool call|tool result|schema/i.test(text);
+  const internalToolNarration = /function call|json object|search_products|tool call|tool result|schema|search result|search again/i.test(text);
   if (!internalToolNarration || products.length === 0) return text;
   const names = products
     .map((product) => product && typeof product === "object" && "name" in product && typeof product.name === "string" ? product.name : null)
@@ -108,6 +108,13 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
   try {
     const agent = new ToolLoopAgent({ id: "agentflow-storefront", model: getNimModel(), instructions: STOREFRONT_AGENT_INSTRUCTIONS, tools, stopWhen: isStepCount(4), temperature: 0, maxOutputTokens: 512 });
     const result = await agent.generate({ prompt: `Trusted storefront session context: currency=${session.currency}; preferences=${JSON.stringify(preferences)}; page=${input.storefrontContext?.pageType || "unknown"}.\nCustomer request: ${message}`, timeout: { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 25_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 8_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
+    if (products.length === 0 && preferences.categories.length > 0) {
+      const recoveryQuery = preferences.categories[0];
+      await repository.recordAudit(context, { eventType: "AGENT_TOOL_REQUESTED", entityType: "agent_tool", entityId: `${sessionId}:discovery-recovery`, shoppingSessionId: sessionId, metadata: { tool: "search_products", source: "deterministic_discovery_recovery" } });
+      const recovery = await searchProducts(context, session, { query: recoveryQuery, limit: 5, maxPricePaise: preferences.budgetMaxPaise });
+      products.push(...recovery);
+      await repository.recordAudit(context, { eventType: "AGENT_TOOL_SUCCEEDED", entityType: "agent_tool", entityId: `${sessionId}:discovery-recovery`, shoppingSessionId: sessionId, metadata: { tool: "search_products", source: "deterministic_discovery_recovery", resultCount: recovery.length } });
+    }
     const text = customerFacingMessage(result.text.trim() || "I can help you explore the catalogue and your cart.", products);
     await repository.recordAudit(context, { eventType: "AGENT_TURN_COMPLETED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { modelCalls: result.steps.length, toolSteps, responseLength: text.length } });
     return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "meta/llama-3.1-8b-instruct", modelCalls: result.steps.length, toolSteps };
