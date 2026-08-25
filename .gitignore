@@ -56,3 +56,4 @@ shopify/.env.*
 /outputs/
 /work/
 /red-team-results.json
+.env*

@@ -14,7 +14,7 @@ export type PublicCart = {
   cartHash: string;
 };
 
-function liveShopify() { return ["shopify", "shopify_ucp"].includes((process.env.CATALOG_PROVIDER || "demo").toLowerCase()); }
+function liveShopify(session?: SessionRecord) { return ["shopify", "shopify_ucp"].includes((process.env.CATALOG_PROVIDER || "demo").toLowerCase()) && Boolean(session?.shopifyShopDomain); }
 
 function cartTotal(cart: ShopifyUcpCart) { return cart.totals.find((total) => total.type === "total")?.amount || 0; }
 
@@ -39,7 +39,7 @@ function ucpClient(session: SessionRecord) {
 }
 
 export async function searchProducts(context: TrustedRequestContext, session: SessionRecord, input: { query: string; limit?: number; category?: string; maxPricePaise?: number }) {
-  if (liveShopify()) {
+  if (liveShopify(session)) {
     const result = await ucpClient(session).searchCatalog(input.query, { limit: input.limit });
     return result.products.filter((product): product is ShopifyUcpProduct => Boolean(product)).map(toPublicShopifyProduct).filter((product) => !input.category || product.tags.includes(input.category) || product.collections.some((collection) => collection.title === input.category));
   }
@@ -51,7 +51,7 @@ export async function searchProducts(context: TrustedRequestContext, session: Se
 }
 
 export async function getProduct(context: TrustedRequestContext, session: SessionRecord, productId: string) {
-  if (liveShopify()) {
+  if (liveShopify(session)) {
     const result = await ucpClient(session).getProduct(productId);
     return result.product ? toPublicShopifyProduct(result.product) : null;
   }
@@ -60,13 +60,13 @@ export async function getProduct(context: TrustedRequestContext, session: Sessio
 }
 
 export async function compareProducts(context: TrustedRequestContext, session: SessionRecord, productIds: string[]) {
-  if (liveShopify()) return (await ucpClient(session).lookupCatalog(productIds)).products.filter((product): product is ShopifyUcpProduct => Boolean(product)).map(toPublicShopifyProduct);
+  if (liveShopify(session)) return (await ucpClient(session).lookupCatalog(productIds)).products.filter((product): product is ShopifyUcpProduct => Boolean(product)).map(toPublicShopifyProduct);
   const repository = getCommerceRepository();
   return (await Promise.all(productIds.map((productId) => repository.getProduct(context, productId)))).filter((product): product is NonNullable<typeof product> => Boolean(product)).map(toPublicProduct);
 }
 
 export async function getInventory(context: TrustedRequestContext, session: SessionRecord, productId: string, variantId?: string) {
-  if (liveShopify()) {
+  if (liveShopify(session)) {
     const product = await getProduct(context, session, productId);
     if (!product || !("variants" in product)) return { productId, variantId, available: false };
     const variant = product.variants.find((item) => !variantId || item.id === variantId);
@@ -77,13 +77,13 @@ export async function getInventory(context: TrustedRequestContext, session: Sess
 }
 
 export async function getCart(context: TrustedRequestContext, session: SessionRecord) {
-  if (liveShopify() && session.shopifyCartId) return publicCart(await ucpClient(session).getCart(session.shopifyCartId), session.shopifyShopDomain || undefined);
+  if (liveShopify(session) && session.shopifyCartId) return publicCart(await ucpClient(session).getCart(session.shopifyCartId), session.shopifyShopDomain || undefined);
   return demoCart(session);
 }
 
 export async function updateCart(context: TrustedRequestContext, session: SessionRecord, lines: Array<{ variantId: string; quantity: number }>) {
   const repository = getCommerceRepository();
-  if (liveShopify() && session.shopifyShopDomain) {
+  if (liveShopify(session) && session.shopifyShopDomain) {
     const client = ucpClient(session);
     const cart = session.shopifyCartId ? await client.updateCart(session.shopifyCartId, { lineItems: lines }) : await client.createCart(lines);
     const nextCart = publicCart(cart, session.shopifyShopDomain);
