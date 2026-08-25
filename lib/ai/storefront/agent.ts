@@ -87,7 +87,11 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
   });
 
   const tools = {
-    search_products: callTool("search_products", storefrontToolSchemas.search_products, async (value) => { const result = await searchProducts(context, session, value); products.push(...result); return { products: result }; }),
+    search_products: callTool("search_products", storefrontToolSchemas.search_products, async (value) => {
+      const result = await searchProducts(context, session, { ...value, maxPricePaise: preferences.budgetMaxPaise });
+      products.push(...result);
+      return { products: result };
+    }),
     get_product: callTool("get_product", storefrontToolSchemas.get_product, async (value) => { const result = await getProduct(context, session, value.productId); return { product: result }; }),
     compare_products: callTool("compare_products", storefrontToolSchemas.compare_products, async (value) => ({ products: await compareProducts(context, session, value.productIds) })),
     get_inventory: callTool("get_inventory", storefrontToolSchemas.get_inventory, async (value) => getInventory(context, session, value.productId, value.variantId)),
