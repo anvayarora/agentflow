@@ -44,6 +44,10 @@ yarn-error.log*
 shopify/.env
 shopify/.env.*
 
+# Local browser authentication state
+.agentflow/
+*shopify-admin-auth*.json
+
 /dist/
 /.wrangler/
 /build/

@@ -23,7 +23,11 @@
 
   function setOpen(open) { launcher.setAttribute("aria-expanded", String(open)); panel.hidden = !open; if (open) input.focus(); }
   function addMessage(text, kind) { var item = document.createElement("div"); item.className = "agentflow-message agentflow-message-" + kind; item.textContent = text; messages.appendChild(item); messages.scrollTop = messages.scrollHeight; }
-  function pageContext() { return { pageType: root.dataset.agentflowPageType || "other", hintedProductId: root.dataset.agentflowProductId || undefined, url: window.location.href }; }
+  function pageContext() {
+    var rawPageType = root.dataset.agentflowPageType || "other";
+    var pageType = { index: "home", home: "home", collection: "collection", product: "product", search: "search", cart: "cart", other: "other" }[rawPageType] || "other";
+    return { pageType: pageType, hintedProductId: root.dataset.agentflowProductId || undefined, url: window.location.href };
+  }
 
   launcher.addEventListener("click", function () { setOpen(panel.hidden); });
   close.addEventListener("click", function () { setOpen(false); });
