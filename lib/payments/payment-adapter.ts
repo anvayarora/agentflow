@@ -1,23 +1,27 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type PaymentOrder = { id: string; amountPaise: number; currency: string; status: string; provider: "mock" | "razorpay" };
-export type PaymentAdapter = { provider: "mock" | "razorpay"; createOrder(input: { amountPaise: number; currency: string; receipt: string; idempotencyKey: string }): Promise<PaymentOrder>; getOrder(id: string): Promise<PaymentOrder>; getPayment(id: string): Promise<{ id: string; status: string; orderId?: string; amountPaise?: number }>; verifyCheckoutSignature(input: { orderId: string; paymentId: string; signature: string }): boolean; verifyWebhook(rawBody: string, signature: string): boolean };
+export type PaymentDetails = { id: string; status: string; orderId?: string; amountPaise?: number; currency?: string };
+export type PaymentAdapter = { provider: "mock" | "razorpay"; createOrder(input: { amountPaise: number; currency: string; receipt: string; idempotencyKey: string }): Promise<PaymentOrder>; getOrder(id: string): Promise<PaymentOrder>; getPayment(id: string): Promise<PaymentDetails>; verifyCheckoutSignature(input: { orderId: string; paymentId: string; signature: string }): boolean; verifyWebhook(rawBody: string, signature: string): boolean };
 
 export class PaymentConfigurationError extends Error { constructor(message: string) { super(message); this.name = "PaymentConfigurationError"; } }
 export class PaymentProviderError extends Error { constructor(message: string) { super(message); this.name = "PaymentProviderError"; } }
 
 let mockOrderCount = 0;
+let paymentCreateOrderCalls = 0;
 export function mockPaymentCallCount() { return mockOrderCount; }
 export function resetMockPaymentForTests() { mockOrderCount = 0; }
+export function paymentCreateOrderCallCount() { return paymentCreateOrderCalls; }
+export function resetPaymentInstrumentationForTests() { paymentCreateOrderCalls = 0; }
 
 const safeEqual = (left: string, right: string) => { const a = Buffer.from(left); const b = Buffer.from(right); return a.length === b.length && timingSafeEqual(a, b); };
 
 class MockPaymentAdapter implements PaymentAdapter {
   provider = "mock" as const;
   private orders = new Map<string, PaymentOrder>();
-  async createOrder(input: { amountPaise: number; currency: string; receipt: string; idempotencyKey: string }) { mockOrderCount += 1; const id = `mock-order-${crypto.randomUUID()}`; const order = { id, amountPaise: input.amountPaise, currency: input.currency, status: "created", provider: "mock" as const }; this.orders.set(id, order); return order; }
+  async createOrder(input: { amountPaise: number; currency: string; receipt: string; idempotencyKey: string }) { mockOrderCount += 1; paymentCreateOrderCalls += 1; const id = `mock-order-${crypto.randomUUID()}`; const order = { id, amountPaise: input.amountPaise, currency: input.currency, status: "created", provider: "mock" as const }; this.orders.set(id, order); return order; }
   async getOrder(id: string) { const order = this.orders.get(id); if (!order) throw new PaymentProviderError("Mock payment order was not found."); return order; }
-  async getPayment(id: string) { return { id, status: "created" }; }
+  async getPayment(id: string) { return { id, status: "created", orderId: undefined, amountPaise: undefined, currency: undefined }; }
   verifyCheckoutSignature() { return true; }
   verifyWebhook() { return true; }
 }
@@ -27,7 +31,8 @@ class RazorpayTestAdapter implements PaymentAdapter {
   private readonly keyId: string;
   private readonly secret: string;
   constructor(keyId: string, secret: string) {
-    if (keyId.startsWith("rzp_live_")) throw new PaymentConfigurationError("Live payment credentials are not permitted by the AgentFlow test adapter.");
+    if (keyId.startsWith("rzp_live_")) throw new PaymentConfigurationError("RAZORPAY_LIVE_MODE_REFUSED");
+    if (!keyId.startsWith("rzp_test_")) throw new PaymentConfigurationError("RAZORPAY_TEST_KEY_REQUIRED");
     this.keyId = keyId;
     this.secret = secret;
   }
@@ -44,9 +49,9 @@ class RazorpayTestAdapter implements PaymentAdapter {
       throw new PaymentProviderError("Payment provider request failed.");
     } finally { clearTimeout(timeout); }
   }
-  async createOrder(input: { amountPaise: number; currency: string; receipt: string; idempotencyKey: string }) { const result = await this.request<{ id: string; amount: number; currency: string; status: string }>("/orders", { method: "POST", body: JSON.stringify({ amount: input.amountPaise, currency: input.currency, receipt: input.receipt, notes: { idempotency_key: input.idempotencyKey } }) }); return { id: result.id, amountPaise: result.amount, currency: result.currency, status: result.status, provider: "razorpay" as const }; }
+  async createOrder(input: { amountPaise: number; currency: string; receipt: string; idempotencyKey: string }) { paymentCreateOrderCalls += 1; const result = await this.request<{ id: string; amount: number; currency: string; status: string }>("/orders", { method: "POST", body: JSON.stringify({ amount: input.amountPaise, currency: input.currency, receipt: input.receipt, notes: { idempotency_key: input.idempotencyKey } }) }); return { id: result.id, amountPaise: result.amount, currency: result.currency, status: result.status, provider: "razorpay" as const }; }
   async getOrder(id: string) { const result = await this.request<{ id: string; amount: number; currency: string; status: string }>(`/orders/${encodeURIComponent(id)}`); return { id: result.id, amountPaise: result.amount, currency: result.currency, status: result.status, provider: "razorpay" as const }; }
-  async getPayment(id: string) { const result = await this.request<{ id: string; status: string; order_id?: string; amount?: number }>(`/payments/${encodeURIComponent(id)}`); return { id: result.id, status: result.status, orderId: result.order_id, amountPaise: result.amount }; }
+  async getPayment(id: string) { const result = await this.request<{ id: string; status: string; order_id?: string; amount?: number; currency?: string }>(`/payments/${encodeURIComponent(id)}`); return { id: result.id, status: result.status, orderId: result.order_id, amountPaise: result.amount, currency: result.currency }; }
   verifyCheckoutSignature(input: { orderId: string; paymentId: string; signature: string }) { return safeEqual(createHmac("sha256", this.secret).update(`${input.orderId}|${input.paymentId}`).digest("hex"), input.signature); }
   verifyWebhook(rawBody: string, signature: string) { const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET; return Boolean(webhookSecret && safeEqual(createHmac("sha256", webhookSecret).update(rawBody).digest("hex"), signature)); }
 }

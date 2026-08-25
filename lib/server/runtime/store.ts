@@ -10,6 +10,7 @@ export const runtimeKinds = {
   override: "SCOPED_OVERRIDE",
   transaction: "TRANSACTION",
   payment: "PAYMENT",
+  webhook: "PAYMENT_WEBHOOK",
   agentTurn: "AGENT_TURN",
   simulation: "SIMULATION",
 } as const;

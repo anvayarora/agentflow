@@ -126,6 +126,7 @@ export async function decideApproval(context: TrustedRequestContext, approvalId:
     const override: RuntimeRecord<OverridePayload> = { id: id("override"), organizationId: context.organizationId, kind: runtimeKinds.override, status: "AVAILABLE", payload: { offerId: offer.id, sessionId: session.id, customerId: offer.payload.customerId, cartHash: offer.payload.cartHash, approvedPricePaise: counterPricePaise!, currency: session.currency, quantity: offer.payload.quantity, variantId: offer.payload.variantId, status: "AVAILABLE", nonce: crypto.randomUUID(), expiresAt: expiry() }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: expiry() };
     await store.put(context, override);
     await store.update(context, runtimeKinds.offer, offer.id, { status: "COUNTERED", payload: { ...offer.payload, status: "COUNTERED", counterPricePaise, overrideId: override.id } });
+    await getCommerceRepository().recordAudit(context, { eventType: "SCOPED_OVERRIDE_ISSUED", entityType: "scoped_override", entityId: override.id, shoppingSessionId: session.id, policyVersionId: offer.payload.policyVersionId, metadata: { offerId: offer.id, approvedPricePaise: counterPricePaise } });
   }
   await getCommerceRepository().recordAudit(context, { eventType: "APPROVAL_DECIDED", entityType: "approval", entityId: approvalId, shoppingSessionId: session.id, metadata: { decision, offerId: offer.id } });
   return getApprovalStatus(context, approvalId);

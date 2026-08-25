@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const [{ compileDemoPolicyProposal }, money, evaluator, repositoryModule, sessionsRoute, evaluateRoute, proxyModule, profileRoute, shopifyProxyRoute, runtimeModule, cartModule, catalogModule, offerModule, checkoutModule, simulationModule, redTeamModule, paymentModule] = await Promise.all([
+const [{ compileDemoPolicyProposal }, money, evaluator, repositoryModule, sessionsRoute, evaluateRoute, proxyModule, profileRoute, shopifyProxyRoute, runtimeModule, cartModule, catalogModule, offerModule, checkoutModule, simulationModule, redTeamModule, paymentModule, checkoutRoute, webhookRoute] = await Promise.all([
   import("../lib/policy/compiler.ts"),
   import("../lib/domain/money.ts"),
   import("../lib/policy/evaluator.ts"),
@@ -19,6 +19,8 @@ const [{ compileDemoPolicyProposal }, money, evaluator, repositoryModule, sessio
   import("../lib/simulation/engine.ts"),
   import("../lib/security/red-team.ts"),
   import("../lib/payments/payment-adapter.ts"),
+  import("../app/api/commerce/checkout/route.ts"),
+  import("../app/api/shopify/webhooks/razorpay/route.ts"),
 ]);
 
 const org = "org_haven_home_demo";
@@ -219,6 +221,82 @@ test("offer acceptance and checkout are server-owned and idempotent", async () =
   assert.equal(duplicate.transactionId, checkout.transactionId);
   assert.equal(paymentModule.mockPaymentCallCount(), 1);
   assert.equal((await checkoutModule.getPaymentStatus(context, checkout.transactionId)).status, "CREATED");
+});
+
+test("checkout rejects client-supplied monetary authority", async () => {
+  const response = await checkoutRoute.POST(new Request("http://localhost/api/commerce/checkout", { method: "POST", body: JSON.stringify({ sessionId: "session", idempotencyKey: "idempotency-001", amountPaise: 1, requestedPricePaise: 1 }), headers: { "content-type": "application/json" } }));
+  assert.equal(response.status, 400);
+});
+
+test("unauthorized and cart-unbound checkout paths make zero provider order calls", async () => {
+  repositoryModule.resetCommerceRepositoryForTests();
+  runtimeModule.resetRuntimeStoreForTests();
+  process.env.PAYMENT_PROVIDER = "mock";
+  paymentModule.resetMockPaymentForTests();
+  const repository = repositoryModule.getCommerceRepository();
+  const session = await repository.createSession(context, "customer-haven-repeat");
+  await assert.rejects(() => checkoutModule.createCheckout(context, { sessionId: session.id, idempotencyKey: "unauthorized-001" }));
+  assert.equal(paymentModule.mockPaymentCallCount(), 0);
+  const offer = await offerModule.requestOffer(context, { sessionId: session.id, productId: "desk-032", quantity: 1, requestedDiscountBps: 0 });
+  await offerModule.acceptOffer(context, offer.offerId);
+  await assert.rejects(() => checkoutModule.createCheckout(context, { sessionId: session.id, idempotencyKey: "unbound-offer-001" }), /not bound/i);
+  assert.equal(paymentModule.mockPaymentCallCount(), 0);
+});
+
+test("Razorpay live keys are refused before any provider request", () => {
+  const previous = { provider: process.env.PAYMENT_PROVIDER, key: process.env.RAZORPAY_KEY_ID, secret: process.env.RAZORPAY_KEY_SECRET };
+  process.env.PAYMENT_PROVIDER = "razorpay";
+  process.env.RAZORPAY_KEY_ID = "rzp_live_refused";
+  process.env.RAZORPAY_KEY_SECRET = "not-a-secret";
+  assert.throws(() => paymentModule.getPaymentAdapter(), /RAZORPAY_LIVE_MODE_REFUSED/);
+  if (previous.provider === undefined) delete process.env.PAYMENT_PROVIDER; else process.env.PAYMENT_PROVIDER = previous.provider;
+  if (previous.key === undefined) delete process.env.RAZORPAY_KEY_ID; else process.env.RAZORPAY_KEY_ID = previous.key;
+  if (previous.secret === undefined) delete process.env.RAZORPAY_KEY_SECRET; else process.env.RAZORPAY_KEY_SECRET = previous.secret;
+});
+
+test("verified Razorpay callback requires provider order and payment state", async () => {
+  repositoryModule.resetCommerceRepositoryForTests();
+  runtimeModule.resetRuntimeStoreForTests();
+  const previous = { provider: process.env.PAYMENT_PROVIDER, key: process.env.RAZORPAY_KEY_ID, secret: process.env.RAZORPAY_KEY_SECRET, fetch: globalThis.fetch };
+  process.env.PAYMENT_PROVIDER = "razorpay";
+  process.env.RAZORPAY_KEY_ID = "rzp_test_unit";
+  process.env.RAZORPAY_KEY_SECRET = "unit-secret";
+  const providerOrder = { id: "order_unit", amount: 1_349_900, currency: "INR", status: "created" };
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    const body = path.endsWith("/orders") ? providerOrder : path.endsWith("/orders/order_unit") ? providerOrder : { id: "pay_unit", status: "captured", order_id: "order_unit", amount: 1_349_900, currency: "INR" };
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const repository = repositoryModule.getCommerceRepository();
+  const session = await repository.createSession(context, "customer-haven-repeat");
+  await catalogModule.updateCart(context, session, [{ variantId: "desk-032", quantity: 1 }]);
+  const offer = await offerModule.requestOffer(context, { sessionId: session.id, productId: "desk-032", quantity: 1, requestedDiscountBps: 0 });
+  await offerModule.acceptOffer(context, offer.offerId);
+  const checkout = await checkoutModule.createCheckout(context, { sessionId: session.id, idempotencyKey: "razorpay-unit-001" });
+  const { createHmac } = await import("node:crypto");
+  const signature = createHmac("sha256", "unit-secret").update("order_unit|pay_unit").digest("hex");
+  const verified = await checkoutModule.verifyPayment(context, { transactionId: checkout.transactionId, orderId: "order_unit", paymentId: "pay_unit", signature });
+  assert.equal(verified.status, "PAID");
+  globalThis.fetch = previous.fetch;
+  if (previous.provider === undefined) delete process.env.PAYMENT_PROVIDER; else process.env.PAYMENT_PROVIDER = previous.provider;
+  if (previous.key === undefined) delete process.env.RAZORPAY_KEY_ID; else process.env.RAZORPAY_KEY_ID = previous.key;
+  if (previous.secret === undefined) delete process.env.RAZORPAY_KEY_SECRET; else process.env.RAZORPAY_KEY_SECRET = previous.secret;
+});
+
+test("Razorpay webhook signature is idempotently persisted", async () => {
+  repositoryModule.resetCommerceRepositoryForTests();
+  runtimeModule.resetRuntimeStoreForTests();
+  const previous = { provider: process.env.PAYMENT_PROVIDER, secret: process.env.RAZORPAY_WEBHOOK_SECRET };
+  process.env.PAYMENT_PROVIDER = "mock";
+  process.env.RAZORPAY_WEBHOOK_SECRET = "webhook-secret";
+  const raw = JSON.stringify({ id: "evt_unit_001", event: "payment.captured" });
+  const { createHmac } = await import("node:crypto");
+  const signature = createHmac("sha256", "webhook-secret").update(raw).digest("hex");
+  const request = () => new Request("http://localhost/api/shopify/webhooks/razorpay", { method: "POST", body: raw, headers: { "x-razorpay-signature": signature, "content-type": "application/json" } });
+  assert.deepEqual(await (await webhookRoute.POST(request())).json(), { received: true, duplicate: false });
+  assert.deepEqual(await (await webhookRoute.POST(request())).json(), { received: true, duplicate: true });
+  if (previous.provider === undefined) delete process.env.PAYMENT_PROVIDER; else process.env.PAYMENT_PROVIDER = previous.provider;
+  if (previous.secret === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET; else process.env.RAZORPAY_WEBHOOK_SECRET = previous.secret;
 });
 
 test("missing economics creates approval state and merchant counter is scoped", async () => {
