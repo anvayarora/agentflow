@@ -84,7 +84,7 @@ test("growth play lifecycle always re-evaluates the published policy", async () 
   resetGrowthRepositoryForTests();
   resetRuntimeStoreForTests();
   const result = await scanGrowth(context);
-  const opportunity = result.opportunities.find((item) => item.policyCompatibility === "COMPATIBLE");
+  const opportunity = result.opportunities.find((item) => item.policyCompatibility === "COMPATIBLE" && Number(item.proposedAction.maxIncentiveBps || 0) > 0);
   assert.ok(opportunity);
   const play = await createGrowthPlay(context, opportunity.id);
   const simulated = await simulateGrowthPlay(context, play.id);
@@ -118,6 +118,25 @@ test("eligible growth actions are cart/session scoped and never expose private c
   assert.ok(!JSON.stringify(eligible).includes("costPaise"));
   assert.ok(eligible.actions.every((action) => action.requiresPolicyRuntime));
   assert.equal(await getGrowthRepository().getOpportunity({ ...context, organizationId: "other-org" }, opportunity.id), null);
+});
+
+test("eligible growth actions re-check the current published policy", async () => {
+  resetCommerceRepositoryForTests();
+  resetGrowthRepositoryForTests();
+  resetRuntimeStoreForTests();
+  const repository = getCommerceRepository();
+  const session = await repository.createSession(context, "customer-haven-repeat");
+  const result = await scanGrowth(context);
+  const opportunity = result.opportunities.find((item) => item.policyCompatibility === "COMPATIBLE" && Number(item.proposedAction.maxIncentiveBps || 0) > 0);
+  assert.ok(opportunity);
+  const play = await createGrowthPlay(context, opportunity.id);
+  await activateGrowthPlay(context, play.id);
+  const draft = await repository.createDraft(context);
+  const restricted = { ...draft, rules: draft.rules.map((rule) => ["global-max-discount", "repeat-customer-ceiling"].includes(rule.id) ? { ...rule, effect: { ...rule.effect, valueBps: 0 } } : rule) };
+  await repository.updateDraft(context, draft.id, restricted);
+  await repository.publishDraft(context, draft.id);
+  const eligible = await getEligibleGrowthActions({ context, sessionId: session.id });
+  assert.equal(eligible.actions.some((action) => action.playId === play.id), false);
 });
 
 test("negotiation frequency is deterministic", () => {

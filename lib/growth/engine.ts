@@ -105,11 +105,21 @@ export async function getEligibleGrowthActions(input: { context: TrustedRequestC
   const session = await commerce.getSession(input.context, input.sessionId);
   if (!session) throw new Error("Commerce session was not found.");
   if (input.cartHash !== undefined && input.cartHash !== session.cartHash) throw new Error("Growth actions are bound to the current cart.");
+  const policy = await commerce.getCurrentPolicy(input.context);
+  const customer = await commerce.getCustomer(input.context, session.customerId);
+  if (!policy || !customer) throw new Error("Current policy and customer context are required.");
   const plays = (await growth.listPlays(input.context)).filter((play) => play.status === "ACTIVE" && (!play.expiresAt || Date.parse(play.expiresAt) > Date.now()));
   const actions = [];
   for (const play of plays) {
     const primary = await commerce.getProduct(input.context, play.primaryProductId);
     if (!primary || primary.stock < 1) continue;
+    const evaluation = evaluateCommerceAction({ organizationId: input.context.organizationId, policy, product: primary, customer, session, request: { quantity: 1, requestedDiscountBps: play.maxIncentiveBps } });
+    await commerce.recordAudit(input.context, { eventType: "GROWTH_ACTION_EVALUATED", entityType: "growth_play", entityId: play.id, shoppingSessionId: session.id, policyVersionId: policy.id, metadata: { outcome: evaluation.outcome, maxIncentiveBps: play.maxIncentiveBps } });
+    if (evaluation.outcome === "DENY" || evaluation.outcome === "ESCALATE" || (typeof evaluation.maxDiscountBps === "number" && play.maxIncentiveBps > evaluation.maxDiscountBps)) {
+      await commerce.recordAudit(input.context, { eventType: "GROWTH_ACTION_BLOCKED", entityType: "growth_play", entityId: play.id, shoppingSessionId: session.id, policyVersionId: policy.id, metadata: { outcome: evaluation.outcome, maxIncentiveBps: play.maxIncentiveBps, currentMaxDiscountBps: evaluation.maxDiscountBps } });
+      continue;
+    }
+    await commerce.recordAudit(input.context, { eventType: "GROWTH_ACTION_AUTHORIZED", entityType: "growth_play", entityId: play.id, shoppingSessionId: session.id, policyVersionId: policy.id, metadata: { maxIncentiveBps: play.maxIncentiveBps } });
     actions.push({ playId: play.id, type: play.commercialStrategy.type || "PRIVATE_INCENTIVE", product: toPublicProduct(primary), secondaryProductIds: play.secondaryProductIds, maxIncentiveBps: play.maxIncentiveBps, requiresPolicyRuntime: true });
   }
   return { sessionId: input.sessionId, actions };
