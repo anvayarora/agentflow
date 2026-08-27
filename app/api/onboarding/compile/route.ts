@@ -25,7 +25,7 @@ const compilerInstruction = `You are AgentFlow's policy compiler. Return JSON on
 Use only these condition fields: customer.segment, cart.totalPaise, cart.quantity, product.sku, product.category, product.brand, product.stock, product.costPaise, product.listPricePaise, product.tags.
 Use only these operators: equals, notEquals, greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual, in, notIn, includes.
 Use only these effects: SET_MAX_DISCOUNT_BPS, ADD_MAX_DISCOUNT_BPS, SET_MIN_MARGIN_BPS, REQUIRE_APPROVAL, DENY, ALLOW_BUNDLE, SET_QUANTITY_DISCOUNT, DISABLE_NEGOTIATION.
-No JavaScript, expressions, eval, connector authority, or unknown fields. Use integer paise and basis points. Flag contradictions by leaving the rules explicit; a server validator will decide whether the draft is publishable.`;
+Return the compact shape {"version":1,"rules":[{"condition":{"customer.segment":"equals repeat"},"effect":"SET_MAX_DISCOUNT_BPS 1500"}]}. Use one valid condition field per rule; use an empty condition object for global rules. Effect arguments must be integers. No JavaScript, expressions, eval, connector authority, or unknown fields. Use integer paise and basis points. Flag contradictions by leaving the rules explicit; a server validator will decide whether the draft is publishable.`;
 
 const genericOperators = new Set<string>(conditionOperators);
 const genericFields = new Set<string>(conditionFields);
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), NIM_REQUEST_TIMEOUT_MS);
         try {
-          const response = await nimFetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0.1, max_tokens: 1_600, response_format: { type: "json_object" }, chat_template_kwargs: { enable_thinking: false }, stream: false, messages: [{ role: "system", content: compilerInstruction }, { role: "user", content: `Merchant intent:\n${parsed.data.prompt}\n\nCatalogue context:\n${(parsed.data.catalogueSummary || "Haven Home catalogue with server-owned price, cost, stock, category, brand, and SKU.").slice(0, 2_000)}` }] }), signal: controller.signal });
+          const response = await nimFetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0, max_tokens: 1_600, response_format: { type: "json_object" }, chat_template_kwargs: { enable_thinking: false }, stream: false, messages: [{ role: "system", content: compilerInstruction }, { role: "user", content: `Merchant intent:\n${parsed.data.prompt}\n\nCatalogue context:\n${(parsed.data.catalogueSummary || "Haven Home catalogue with server-owned price, cost, stock, category, brand, and SKU.").slice(0, 2_000)}` }] }), signal: controller.signal });
           if (!response.ok) throw new Error(`NIM returned ${response.status}`);
           const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
           const content = payload.choices?.[0]?.message?.content;
