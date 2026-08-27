@@ -47,11 +47,14 @@ function normalizeNimProposal(value: unknown, organizationId: string, prompt: st
     const conditions: PolicyVersionIR["rules"][number]["conditions"] = [];
     if (candidate.condition !== undefined) {
       if (!candidate.condition || typeof candidate.condition !== "object") return null;
-      for (const [field, expression] of Object.entries(candidate.condition as Record<string, unknown>)) {
-        if (!genericFields.has(field) || typeof expression !== "string") return null;
-        const [operator, ...rest] = expression.trim().split(/\s+/);
+      for (const [rawField, expression] of Object.entries(candidate.condition as Record<string, unknown>)) {
+        const field = rawField.split(",").map((item) => item.trim()).find((item) => genericFields.has(item));
+        if (!field) return null;
+        const [operator, ...rest] = typeof expression === "string" ? expression.trim().split(/\s+/) : expression && typeof expression === "object" ? Object.entries(expression as Record<string, unknown>)[0] || [] : [];
         if (!genericOperators.has(operator) || rest.length === 0) return null;
-        conditions.push({ field: field as PolicyVersionIR["rules"][number]["conditions"][number]["field"], operator: operator as PolicyVersionIR["rules"][number]["conditions"][number]["operator"], value: parseGenericValue(rest.join(" ")) });
+        const parsedValue = Array.isArray(rest) && rest.length === 1 && typeof rest[0] !== "string" ? rest[0] : parseGenericValue(rest.join(" "));
+        if (!(typeof parsedValue === "string" || typeof parsedValue === "number" || typeof parsedValue === "boolean" || Array.isArray(parsedValue))) return null;
+        conditions.push({ field: field as PolicyVersionIR["rules"][number]["conditions"][number]["field"], operator: operator as PolicyVersionIR["rules"][number]["conditions"][number]["operator"], value: parsedValue });
       }
     }
     if (typeof candidate.effect !== "string") return null;
