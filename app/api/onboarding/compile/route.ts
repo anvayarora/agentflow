@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     if (apiKey) {
       try {
         const baseUrl = (getEnv("NIM_BASE_URL") || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
-        const model = getEnv("NIM_MODEL_ID") || "nvidia/llama-3.3-nemotron-super-49b-v1.5";
+        const model = getEnv("NIM_MODEL_ID") || "meta/llama-3.1-8b-instruct";
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), NIM_REQUEST_TIMEOUT_MS);
         try {

@@ -21,7 +21,7 @@ export async function GET() {
     connectors: {
       nim: {
         configured: Boolean(values?.NIM_API_KEY),
-        model: values?.NIM_MODEL_ID || "meta/llama-3.3-70b-instruct",
+        model: values?.NIM_MODEL_ID || "meta/llama-3.1-8b-instruct",
         endpoint: values?.NIM_BASE_URL || "https://integrate.api.nvidia.com/v1",
         mode: values?.NIM_API_KEY ? "live inference" : "deterministic fallback",
       },
