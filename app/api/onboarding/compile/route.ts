@@ -47,7 +47,7 @@ export async function POST(request: Request) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), NIM_REQUEST_TIMEOUT_MS);
         try {
-          const response = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0.1, max_tokens: 1_600, response_format: { type: "json_object" }, messages: [{ role: "system", content: compilerInstruction }, { role: "user", content: `Merchant intent:\n${parsed.data.prompt}\n\nCatalogue context:\n${(parsed.data.catalogueSummary || "Haven Home catalogue with server-owned price, cost, stock, category, brand, and SKU.").slice(0, 2_000)}` }] }), signal: controller.signal });
+          const response = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0.1, max_tokens: 1_600, response_format: { type: "json_object" }, chat_template_kwargs: { enable_thinking: false }, messages: [{ role: "system", content: compilerInstruction }, { role: "user", content: `Merchant intent:\n${parsed.data.prompt}\n\nCatalogue context:\n${(parsed.data.catalogueSummary || "Haven Home catalogue with server-owned price, cost, stock, category, brand, and SKU.").slice(0, 2_000)}` }] }), signal: controller.signal });
           if (!response.ok) throw new Error(`NIM returned ${response.status}`);
           const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
           const content = payload.choices?.[0]?.message?.content;
