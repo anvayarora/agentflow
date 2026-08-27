@@ -12,6 +12,7 @@ export type CompiledPolicyProposal = {
   graph: PolicyGraph;
   discrepancies: PolicyDiscrepancy[];
   assumptions: string[];
+  clarificationQuestions: string[];
   valid: boolean;
 };
 
@@ -29,6 +30,15 @@ const readMoney = (text: string, pattern: RegExp, fallback: number) => {
 const bps = (percentage: number) => Math.round(percentage * 100);
 
 const rule = (input: PolicyRule): PolicyRule => input;
+
+function clarificationQuestions(prompt: string) {
+  const questions: string[] = [];
+  if (/old inventory|slow[-\s]?moving|ageing|aging/i.test(prompt) && !/(?:days?|weeks?|months?)/i.test(prompt)) questions.push("How many days should an item be considered slow-moving or old inventory?");
+  if (/private bundle|bundle offer|bundle/i.test(prompt) && !/public|private/i.test(prompt)) questions.push("Should this offer be private to eligible sessions, or visible on the public storefront?");
+  if (/negotiate|haggling|offer requests/i.test(prompt) && !/once|twice|[0-9]+\s*(?:times|requests?)/i.test(prompt)) questions.push("How many offer requests should one shopping session be allowed to make?");
+  if (/margin/i.test(prompt) && !/[0-9]+(?:\.[0-9]+)?\s*%/.test(prompt)) questions.push("What minimum gross margin should every authorized offer preserve?");
+  return questions.slice(0, 4);
+}
 
 export function compilePolicyProposal(prompt: string, options?: {
   organizationId?: string;
@@ -83,6 +93,7 @@ export function compilePolicyProposal(prompt: string, options?: {
       "Missing cost data fails safe to merchant review when a margin floor applies.",
       "NIM may propose this IR, but a merchant must validate and publish it explicitly.",
     ],
+    clarificationQuestions: clarificationQuestions(prompt),
     valid: validation.valid && discrepancies.length === 0,
   } satisfies CompiledPolicyProposal;
 }

@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "dist/**",
     "out/**",
     "build/**",
+    "agentflow-landing-frontend/**",
     "next-env.d.ts",
   ]),
   eslint.configs.recommended,

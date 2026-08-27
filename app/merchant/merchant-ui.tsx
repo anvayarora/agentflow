@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 
-export type MerchantSection = "overview" | "onboarding" | "workflow" | "catalog" | "approvals" | "activity" | "connectors";
+export type MerchantSection = "overview" | "onboarding" | "workflow" | "growth" | "catalog" | "approvals" | "activity" | "connectors";
 
 const links: Array<{ id: MerchantSection; label: string; href: string; icon: string }> = [
   { id: "overview", label: "Overview", href: "/merchant", icon: "⌂" },
   { id: "onboarding", label: "Onboarding", href: "/merchant/onboarding", icon: "✦" },
   { id: "workflow", label: "Workflow", href: "/merchant/workflow", icon: "◈" },
+  { id: "growth", label: "Growth", href: "/merchant/growth", icon: "↗" },
   { id: "catalog", label: "Catalogue", href: "/merchant/catalog", icon: "▦" },
   { id: "approvals", label: "Approvals", href: "/merchant/approvals", icon: "◌" },
   { id: "activity", label: "Activity", href: "/merchant/activity", icon: "↗" },

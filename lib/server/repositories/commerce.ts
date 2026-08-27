@@ -58,6 +58,7 @@ export type CommerceRepository = {
   createShopifySession(context: TrustedRequestContext, input: ShopifySessionInput): Promise<SessionRecord>;
   getSession(context: TrustedRequestContext, sessionId: string): Promise<SessionRecord | null>;
   updateSessionCart(context: TrustedRequestContext, sessionId: string, update: SessionCartUpdate): Promise<SessionRecord | null>;
+  updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; supplier?: string | null; privateTags?: string[] }): Promise<CanonicalProduct | null>;
   getCurrentPolicy(context: TrustedRequestContext): Promise<PolicyVersionIR | null>;
   getPolicyVersion(context: TrustedRequestContext, versionId: string): Promise<PolicyVersionIR | null>;
   createDraft(context: TrustedRequestContext, proposed?: PolicyVersionIR): Promise<PolicyVersionIR>;
@@ -176,6 +177,15 @@ class MemoryCommerceRepository implements CommerceRepository {
     if (!current) return null;
     const next = { ...current, ...(update.currency ? { currency: update.currency } : {}), cartTotalPaise: update.cartTotalPaise, shopifyCartId: update.shopifyCartId === undefined ? current.shopifyCartId : update.shopifyCartId, canonicalLineItems: update.canonicalLineItems, cartHash: update.cartHash === undefined ? current.cartHash : update.cartHash, lastSyncedAt: now() };
     this.state(context).sessions.set(sessionId, next);
+    return next;
+  }
+  async updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; supplier?: string | null; privateTags?: string[] }) {
+    const product = await this.getProduct(context, productId);
+    if (!product) return null;
+    if (update.costPaise !== undefined && update.costPaise !== null && (!Number.isSafeInteger(update.costPaise) || update.costPaise < 0)) throw new Error("Private product cost must be a non-negative integer amount in paise.");
+    const next = { ...product, ...(update.costPaise !== undefined ? { costPaise: update.costPaise } : {}), ...(update.brand !== undefined ? { brand: update.brand } : {}), ...(update.category !== undefined ? { category: update.category } : {}), ...(update.externalId !== undefined ? { externalId: update.externalId } : {}), attributes: { ...product.attributes, ...(update.supplier === undefined ? {} : { supplier: update.supplier }), ...(update.privateTags === undefined ? {} : { privateTags: update.privateTags }) } };
+    const rows = this.state(context).products;
+    rows[rows.findIndex((row) => row.id === productId)] = next;
     return next;
   }
   async getCurrentPolicy(context: TrustedRequestContext) { return this.state(context).policies.get(this.state(context).currentPolicyId) || null; }
@@ -298,6 +308,14 @@ class PostgresCommerceRepository implements CommerceRepository {
     if (!current) return null;
     await getDb().update(shoppingSessions).set({ ...(update.currency ? { currency: update.currency } : {}), cart: { totalPaise: update.cartTotalPaise }, shopifyCartId: update.shopifyCartId === undefined ? current.shopifyCartId : update.shopifyCartId, canonicalLineItems: update.canonicalLineItems, cartHash: update.cartHash === undefined ? current.cartHash : update.cartHash, lastSyncedAt: new Date(), updatedAt: new Date() }).where(and(eq(shoppingSessions.organizationId, context.organizationId), eq(shoppingSessions.id, sessionId)));
     return this.getSession(context, sessionId);
+  }
+  async updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; supplier?: string | null; privateTags?: string[] }) {
+    if (update.costPaise !== undefined && update.costPaise !== null && (!Number.isSafeInteger(update.costPaise) || update.costPaise < 0)) throw new Error("Private product cost must be a non-negative integer amount in paise.");
+    const current = await this.getProduct(context, productId);
+    if (!current) return null;
+    const attributes = { ...current.attributes, ...(update.supplier === undefined ? {} : { supplier: update.supplier }), ...(update.privateTags === undefined ? {} : { privateTags: update.privateTags }) };
+    await getDb().update(products).set({ ...(update.costPaise !== undefined ? { costPaise: update.costPaise } : {}), ...(update.brand !== undefined ? { brand: update.brand } : {}), ...(update.category !== undefined ? { category: update.category } : {}), ...(update.externalId !== undefined ? { externalId: update.externalId } : {}), attributes, updatedAt: new Date() }).where(and(eq(products.organizationId, context.organizationId), eq(products.id, productId)));
+    return this.getProduct(context, productId);
   }
   private async loadVersion(context: TrustedRequestContext, versionId: string) {
     const rows = await getDb().select().from(policyVersions).where(and(eq(policyVersions.organizationId, context.organizationId), eq(policyVersions.id, versionId))).limit(1);

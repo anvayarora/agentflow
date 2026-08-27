@@ -242,6 +242,89 @@ export const simulationCases = pgTable("simulation_cases", {
 });
 
 /**
+ * Observed inventory is kept separately from the current product row so growth
+ * recommendations can explain what was actually observed over time.
+ */
+export const inventorySnapshots = pgTable("inventory_snapshots", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  productId: text("product_id").notNull().references(() => products.id),
+  variantId: text("variant_id"),
+  quantity: integer("quantity").notNull(),
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+  source: text("source").notNull(),
+  createdAt: createdAt(),
+}, (table) => ({
+  organizationProductObservedUnique: uniqueIndex("inventory_snapshots_org_product_observed_idx").on(table.organizationId, table.productId, table.observedAt),
+}));
+
+export const growthSignals = pgTable("growth_signals", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  type: text("type").notNull(),
+  productId: text("product_id"),
+  variantId: text("variant_id"),
+  relatedProductId: text("related_product_id"),
+  severity: text("severity").notNull(),
+  confidenceBps: integer("confidence_bps").notNull(),
+  evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull(),
+  calculatedAt: timestamp("calculated_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+}, (table) => ({
+  organizationSignalUnique: uniqueIndex("growth_signals_org_type_product_idx").on(table.organizationId, table.type, table.productId, table.relatedProductId),
+}));
+
+export const growthOpportunities = pgTable("growth_opportunities", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  type: text("type").notNull(),
+  sourceSignalIds: jsonb("source_signal_ids").$type<string[]>().notNull(),
+  primaryProductId: text("primary_product_id").notNull().references(() => products.id),
+  secondaryProductIds: text("secondary_product_ids").array().notNull(),
+  proposedAction: jsonb("proposed_action").$type<Record<string, unknown>>().notNull(),
+  estimatedImpact: jsonb("estimated_impact").$type<Record<string, unknown>>().notNull(),
+  evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull(),
+  riskFlags: text("risk_flags").array().notNull(),
+  policyCompatibility: text("policy_compatibility").notNull(),
+  scoreBps: integer("score_bps").notNull(),
+  status: text("status").notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const growthPlays = pgTable("growth_plays", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  opportunityId: text("opportunity_id").notNull().references(() => growthOpportunities.id),
+  primaryProductId: text("primary_product_id").notNull().references(() => products.id),
+  secondaryProductIds: text("secondary_product_ids").array().notNull(),
+  eligibility: jsonb("eligibility").$type<Record<string, unknown>>().notNull(),
+  commercialStrategy: jsonb("commercial_strategy").$type<Record<string, unknown>>().notNull(),
+  maxIncentiveBps: integer("max_incentive_bps").notNull(),
+  minimumMarginBps: integer("minimum_margin_bps").notNull(),
+  requiredPolicyChecks: jsonb("required_policy_checks").$type<string[]>().notNull(),
+  customerEligibility: jsonb("customer_eligibility").$type<Record<string, unknown>>().notNull(),
+  frequencyLimit: jsonb("frequency_limit").$type<Record<string, unknown>>().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  approvalRequired: boolean("approval_required").notNull(),
+  status: text("status").notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const growthAttributions = pgTable("growth_attributions", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  growthPlayId: text("growth_play_id").notNull().references(() => growthPlays.id),
+  transactionId: text("transaction_id").notNull(),
+  baselineCartAmountPaise: integer("baseline_cart_amount_paise").notNull(),
+  actualPaidAmountPaise: integer("actual_paid_amount_paise").notNull(),
+  incrementalAovPaise: integer("incremental_aov_paise").notNull(),
+  verified: boolean("verified").notNull(),
+  createdAt: createdAt(),
+});
+
+/**
  * Durable execution state for the storefront agent. Domain services validate
  * each payload before writing it; the organization/kind/id key keeps every
  * runtime object tenant-scoped and makes retries idempotent.

@@ -22,6 +22,13 @@
       "when": 1787658309876,
       "tag": "0002_prompt2_runtime_records",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787722629839,
+      "tag": "0003_silly_rattler",
+      "breakpoints": true
     }
   ]
 }
