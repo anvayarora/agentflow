@@ -107,7 +107,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
 
   try {
     const agent = new ToolLoopAgent({ id: "agentflow-storefront", model: getNimModel(), instructions: STOREFRONT_AGENT_INSTRUCTIONS, tools, providerOptions: { "nvidia-nim": { chat_template_kwargs: { enable_thinking: false } } }, stopWhen: isStepCount(4), temperature: 0, maxOutputTokens: 512 });
-    const result = await agent.generate({ prompt: `Trusted storefront session context: currency=${session.currency}; preferences=${JSON.stringify(preferences)}; page=${input.storefrontContext?.pageType || "unknown"}.\nCustomer request: ${message}`, timeout: { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 25_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 8_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
+    const result = await agent.generate({ prompt: `Trusted storefront session context: currency=${session.currency}; preferences=${JSON.stringify(preferences)}; page=${input.storefrontContext?.pageType || "unknown"}.\nCustomer request: ${message}`, timeout: { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 90_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 30_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
     if (products.length === 0 && preferences.categories.length > 0) {
       const recoveryQuery = preferences.categories[0];
       await repository.recordAudit(context, { eventType: "AGENT_TOOL_REQUESTED", entityType: "agent_tool", entityId: `${sessionId}:discovery-recovery`, shoppingSessionId: sessionId, metadata: { tool: "search_products", source: "deterministic_discovery_recovery" } });

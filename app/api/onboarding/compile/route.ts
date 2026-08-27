@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 const bodySchema = z.object({ prompt: z.string().trim().min(1).max(12_000), catalogueSummary: z.string().optional() }).strict();
 
 const getEnv = (name: string) => (typeof process === "undefined" ? undefined : process.env[name]);
-const NIM_REQUEST_TIMEOUT_MS = 30_000;
+const NIM_REQUEST_TIMEOUT_MS = 90_000;
 const extractJson = (content: string) => {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
   const candidate = fenced ?? content.match(/\{[\s\S]*\}/)?.[0];
