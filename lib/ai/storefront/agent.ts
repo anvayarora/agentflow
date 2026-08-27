@@ -117,10 +117,10 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     }
     const text = customerFacingMessage(result.text.trim() || "I can help you explore the catalogue and your cart.", products);
     await repository.recordAudit(context, { eventType: "AGENT_TURN_COMPLETED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { modelCalls: result.steps.length, toolSteps, responseLength: text.length } });
-    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "meta/llama-3.1-8b-instruct", modelCalls: result.steps.length, toolSteps };
+    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3.5-lightning-30b-a3b", modelCalls: result.steps.length, toolSteps };
   } catch (error) {
     const configuration = error instanceof NimConfigurationError;
     await repository.recordAudit(context, { eventType: "TRANSACTION_FAILED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { reason: configuration ? "nim_not_configured" : "agent_execution_failed" } });
-    return { sessionId, message: configuration ? "The storefront assistant is not enabled for this environment yet." : safeMessage, status: configuration ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "meta/llama-3.1-8b-instruct", modelCalls: 0, toolSteps };
+    return { sessionId, message: configuration ? "The storefront assistant is not enabled for this environment yet." : safeMessage, status: configuration ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3.5-lightning-30b-a3b", modelCalls: 0, toolSteps };
   }
 }

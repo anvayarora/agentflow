@@ -21,7 +21,7 @@ export async function GET() {
     connectors: {
       nim: {
         configured: Boolean(values?.NIM_API_KEY),
-        model: values?.NIM_MODEL_ID || "meta/llama-3.1-8b-instruct",
+        model: values?.NIM_MODEL_ID || "nvidia/nemotron-3.5-lightning-30b-a3b",
         endpoint: values?.NIM_BASE_URL || "https://integrate.api.nvidia.com/v1",
         mode: values?.NIM_API_KEY ? "live inference" : "deterministic fallback",
       },

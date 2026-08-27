@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 
-export const NIM_MODEL_ID = "meta/llama-3.1-8b-instruct";
+export const NIM_MODEL_ID = "nvidia/nemotron-3.5-lightning-30b-a3b";
 export const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
 export class NimConfigurationError extends Error {
