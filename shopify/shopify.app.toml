@@ -2,7 +2,7 @@
 
 client_id = "19d42795913d92ee245ec090b27d7ebd"
 name = "AgentFlow"
-application_url = "https://agentflow-buildathon.vercel.app"
+application_url = "https://agentflow-beige-eight.vercel.app"
 embedded = false
 
 [access_scopes]
@@ -12,12 +12,12 @@ embedded = false
 scopes = "read_products,write_products"
 
 [app_proxy]
-url = "https://agentflow-buildathon.vercel.app/api/shopify/proxy"
+url = "https://agentflow-beige-eight.vercel.app/api/shopify/proxy"
 prefix = "apps"
 subpath = "agentflow"
 
 [auth]
-redirect_urls = [ "https://agentflow-buildathon.vercel.app/" ]
+redirect_urls = [ "https://agentflow-beige-eight.vercel.app/" ]
 
 [webhooks]
 api_version = "2026-10"
