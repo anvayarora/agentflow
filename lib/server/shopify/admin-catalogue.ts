@@ -78,6 +78,7 @@ export async function syncCatalogueRows(context: TrustedRequestContext, rows: Ca
   if (targetShop !== shopDomain()) throw new ShopifyAdminError("Catalogue sync target is not the configured Shopify development store.", "SHOP_DOMAIN_MISMATCH", 403);
   const repository = getCommerceRepository();
   const result: ShopifySyncResult = { shopDomain: targetShop, mode: "live-admin", productsCreated: 0, productsUpdated: 0, variants: 0, inventory: { sourceOfTruth: env()?.AGENTFLOW_CATALOGUE_INVENTORY_SOURCE === "agentflow" ? "agentflow" : "shopify", status: "not-written" }, mappings: [], errors: [] };
+  const existingSkus = new Set((await repository.listProducts(context)).map((product) => product.sku.toLowerCase()));
   const grouped = new Map<string, CatalogueImportRow[]>();
   for (const row of rows) { const key = row.productName.trim().toLowerCase(); grouped.set(key, [...(grouped.get(key) || []), row]); }
   for (const productRows of grouped.values()) {
@@ -97,7 +98,8 @@ export async function syncCatalogueRows(context: TrustedRequestContext, rows: Ca
         const variant = variants.find((entry) => entry.sku === saved.sku);
         result.mappings.push(await upsertProductMapping(context, { productId: saved.id, shopDomain: targetShop, shopifyProductGid: productGid, shopifyVariantGid: typeof variant?.id === "string" ? variant.id : null, sku: saved.sku, source: "productSet" }));
       }
-      result.productsUpdated += 1;
+      if (productRows.some((row) => existingSkus.has(row.sku.toLowerCase()))) result.productsUpdated += 1;
+      else result.productsCreated += 1;
     } catch (error) {
       for (const row of productRows) result.errors.push({ sku: row.sku, message: error instanceof Error ? error.message : "Shopify catalogue sync failed." });
     }
@@ -107,6 +109,5 @@ export async function syncCatalogueRows(context: TrustedRequestContext, rows: Ca
     // compare-and-set mutation. They are intentionally not guessed here.
     result.inventory.status = "blocked";
   }
-  result.productsCreated = result.productsUpdated;
   return result;
 }
