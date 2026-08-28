@@ -334,7 +334,8 @@ export class ShopifyUcpClient {
       services,
       capabilities: capabilityMap(root.capabilities),
     };
-    if (!business.version || business.version !== SHOPIFY_UCP_VERSION) throw new ShopifyUcpError(`Shopify UCP version ${business.version || "unknown"} is not the supported ${SHOPIFY_UCP_VERSION} contract.`, "UNSUPPORTED_UCP_VERSION");
+    const versionSupported = Boolean(business.version && (business.version === SHOPIFY_UCP_VERSION || business.supportedVersions[business.version]));
+    if (!versionSupported) throw new ShopifyUcpError(`Shopify UCP version ${business.version || "unknown"} is not a supported contract.`, "UNSUPPORTED_UCP_VERSION");
     this.business = business;
     return business;
   }
