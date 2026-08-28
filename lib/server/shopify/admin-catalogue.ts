@@ -43,7 +43,13 @@ async function graphQL(query: string, variables: Json, organizationId: string): 
   const response = await fetch(`https://${shopDomain()}/admin/api/${apiVersion()}/graphql.json`, { method: "POST", headers: { "content-type": "application/json", "x-shopify-access-token": token }, body: JSON.stringify({ query, variables }) });
   const payload = await response.json().catch(() => ({})) as Json;
   if (!response.ok) throw new ShopifyAdminError(`Shopify Admin GraphQL returned HTTP ${response.status}.`, "SHOPIFY_ADMIN_HTTP_ERROR", response.status);
-  if (Array.isArray(payload.errors) && payload.errors.length) throw new ShopifyAdminError("Shopify Admin GraphQL rejected the request.", "SHOPIFY_ADMIN_GRAPHQL_ERROR", 400);
+  if (Array.isArray(payload.errors) && payload.errors.length) {
+    const details = payload.errors.map((entry) => {
+      const item = entry as Json;
+      return typeof item.message === "string" ? item.message : "Unknown GraphQL error";
+    }).join("; ");
+    throw new ShopifyAdminError(`Shopify Admin GraphQL rejected the request: ${details}`, "SHOPIFY_ADMIN_GRAPHQL_ERROR", 400);
+  }
   return payload;
 }
 
@@ -89,7 +95,13 @@ export async function syncCatalogueRows(context: TrustedRequestContext, rows: Ca
       const payload = await graphQL(mutation, { input: productInput(productRows), identifier: { handle: slug(first.sku) } }, context.organizationId);
       const productSet = (payload.data as Json | undefined)?.productSet as Json | undefined;
       const userErrors = Array.isArray(productSet?.userErrors) ? productSet.userErrors as Json[] : [];
-      if (userErrors.length) throw new ShopifyAdminError("Shopify rejected one or more catalogue fields.", "SHOPIFY_PRODUCT_SET_ERROR", 400);
+      if (userErrors.length) {
+        const details = userErrors.map((entry) => {
+          const field = Array.isArray(entry.field) ? entry.field.filter((value): value is string => typeof value === "string").join(".") : "catalogue";
+          return `${field}: ${typeof entry.message === "string" ? entry.message : "invalid field"}`;
+        }).join("; ");
+        throw new ShopifyAdminError(`Shopify rejected one or more catalogue fields: ${details}`, "SHOPIFY_PRODUCT_SET_ERROR", 400);
+      }
       const product = productSet?.product as Json | undefined;
       const productGid = typeof product?.id === "string" ? product.id : undefined;
       if (!productGid) throw new ShopifyAdminError("Shopify did not return a product ID.", "SHOPIFY_PRODUCT_SET_NO_PRODUCT", 502);
