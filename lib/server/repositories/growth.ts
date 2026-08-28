@@ -120,6 +120,12 @@ export class GrowthRepository {
     return attribution;
   }
 
+  async listAttributions(context: TrustedRequestContext) {
+    if (!isDatabaseConfigured()) return [...state(context.organizationId).attributions].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const rows = await getDb().select().from(growthAttributions).where(eq(growthAttributions.organizationId, context.organizationId)).orderBy(desc(growthAttributions.createdAt));
+    return rows.map((row) => ({ id: row.id, organizationId: row.organizationId, growthPlayId: row.growthPlayId, transactionId: row.transactionId, baselineCartAmountPaise: row.baselineCartAmountPaise, actualPaidAmountPaise: row.actualPaidAmountPaise, incrementalAovPaise: row.incrementalAovPaise, verified: row.verified, createdAt: row.createdAt.toISOString() }));
+  }
+
   async updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; privateTags?: string[]; supplier?: string | null }) {
     return getCommerceRepository().updateProductEconomics(context, productId, update);
   }

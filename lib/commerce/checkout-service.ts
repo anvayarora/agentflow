@@ -75,8 +75,10 @@ export async function createCheckout(context: TrustedRequestContext, input: { se
   }
   const transaction: RuntimeRecord<TransactionPayload> = { id: id("transaction"), organizationId: context.organizationId, kind: runtimeKinds.transaction, status: "CREATED", payload: { sessionId: session.id, offerId: offer.id, policyVersionId: offer.payload.policyVersionId, amountPaise: order.amountPaise, currency: order.currency, cartHash: cart.cartHash, idempotencyKey: input.idempotencyKey, provider: order.provider, providerOrderId: order.id, status: "CREATED", createdAt: new Date().toISOString() }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   await store.put(context, transaction);
+  await repository.recordTransaction(context, { id: transaction.id, sessionId: session.id, offerId: offer.payload.persistedOffer === true ? offer.id : null, policyVersionId: offer.payload.policyVersionId, status: "CREATED", totalPaise: order.amountPaise, currency: order.currency, createdAt: transaction.payload.createdAt });
   const payment: RuntimeRecord<PaymentPayload> = { id: id("payment"), organizationId: context.organizationId, kind: runtimeKinds.payment, status: "CREATED", payload: { transactionId: transaction.id, provider: order.provider, providerOrderId: order.id, status: "CREATED", amountPaise: order.amountPaise, currency: order.currency, idempotencyKey: input.idempotencyKey, createdAt: new Date().toISOString() }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   await store.put(context, payment);
+  await repository.recordPayment(context, { id: payment.id, transactionId: transaction.id, provider: order.provider, status: "CREATED", amountPaise: order.amountPaise, currency: order.currency, createdAt: payment.payload.createdAt });
   await repository.recordAudit(context, { eventType: "PAYMENT_CREATED", entityType: "payment", entityId: payment.id, shoppingSessionId: session.id, policyVersionId: offer.payload.policyVersionId, metadata: { provider: order.provider, providerOrderId: order.id, amountPaise: order.amountPaise } });
   await repository.recordAudit(context, { eventType: "CHECKOUT_CREATED", entityType: "transaction", entityId: transaction.id, shoppingSessionId: session.id, policyVersionId: offer.payload.policyVersionId, metadata: { provider: order.provider, providerOrderId: order.id, amountPaise: order.amountPaise } });
   return { transactionId: transaction.id, paymentId: payment.id, status: "CREATED" as const, provider: order.provider, providerOrderId: order.id, amountPaise: order.amountPaise, currency: order.currency, publicKeyId: getPublicPaymentKey() };
@@ -114,6 +116,8 @@ export async function verifyPayment(context: TrustedRequestContext, input: { tra
   }
   await getRuntimeStore().update(context, runtimeKinds.transaction, transaction.id, { status: "PAID", payload: { ...transaction.payload, status: "PAID" } });
   await getRuntimeStore().update(context, runtimeKinds.payment, payment.id, { status: "PAID", payload: { ...payment.payload, providerPaymentId: input.paymentId, providerStatus: providerPayment.status, status: "PAID", verifiedAt: new Date().toISOString() } });
+  await getCommerceRepository().updateTransactionStatus(context, transaction.id, "PAID");
+  await getCommerceRepository().updatePayment(context, payment.id, { status: "PAID", providerPaymentId: input.paymentId });
   await getCommerceRepository().recordAudit(context, { eventType: "PAYMENT_VERIFIED", entityType: "transaction", entityId: transaction.id, shoppingSessionId: transaction.payload.sessionId, policyVersionId: transaction.payload.policyVersionId, metadata: { provider: transaction.payload.provider, providerOrderId: transaction.payload.providerOrderId, providerPaymentId: input.paymentId, providerStatus: providerPayment.status, amountPaise: transaction.payload.amountPaise } });
   return getPaymentStatus(context, transaction.id);
 }

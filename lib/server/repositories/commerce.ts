@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "../../../db";
-import { auditEvents, customers, policies, policyRules, policyVersions, products, shoppingSessions } from "../../../db/schema";
+import { approvalRequests, auditEvents, commerceTransactions, customers, paymentRecords, policies, policyRules, policyVersions, products, shoppingSessions } from "../../../db/schema";
 import { products as displayProducts } from "../../catalogue";
 import type { AuditEventInput } from "../../domain/audit";
 import type { CanonicalCustomer } from "../../domain/customer";
@@ -68,6 +68,10 @@ export type OfferRecord = {
   createdAt: string;
 };
 
+export type ApprovalLedgerRecord = { id: string; offerId: string; status: string; decision?: string; decidedBy?: string; decidedAt?: string | null; createdAt?: string };
+export type TransactionLedgerRecord = { id: string; sessionId: string; offerId?: string | null; policyVersionId: string; status: string; totalPaise: number; currency: string; createdAt?: string };
+export type PaymentLedgerRecord = { id: string; transactionId: string; provider: string; providerPaymentId?: string | null; status: string; amountPaise: number; currency: string; createdAt?: string };
+
 export type CommerceRepository = {
   listProducts(context: TrustedRequestContext): Promise<CanonicalProduct[]>;
   getProduct(context: TrustedRequestContext, productId: string): Promise<CanonicalProduct | null>;
@@ -87,6 +91,12 @@ export type CommerceRepository = {
   publishDraft(context: TrustedRequestContext, draftId: string): Promise<PolicyVersionIR>;
   resolveDraftDiscrepancy(context: TrustedRequestContext, draftId: string, discrepancyId: string, resolution: string | number | { valueBps?: number; ruleId?: string }): Promise<{ policy: PolicyVersionIR; validation: PolicyValidationResult; discrepancies: PolicyDiscrepancy[] }>;
   recordOffer(context: TrustedRequestContext, offer: OfferRecord): Promise<void>;
+  recordApproval(context: TrustedRequestContext, approval: ApprovalLedgerRecord): Promise<void>;
+  updateApproval(context: TrustedRequestContext, approvalId: string, update: Pick<ApprovalLedgerRecord, "status" | "decision" | "decidedBy" | "decidedAt">): Promise<void>;
+  recordTransaction(context: TrustedRequestContext, transaction: TransactionLedgerRecord): Promise<void>;
+  updateTransactionStatus(context: TrustedRequestContext, transactionId: string, status: string): Promise<void>;
+  recordPayment(context: TrustedRequestContext, payment: PaymentLedgerRecord): Promise<void>;
+  updatePayment(context: TrustedRequestContext, paymentId: string, update: Pick<PaymentLedgerRecord, "status" | "providerPaymentId">): Promise<void>;
   recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>): Promise<void>;
   listAudit(context: TrustedRequestContext, limit?: number): Promise<Array<AuditEventInput & { id: string; createdAt: string }>>;
 };
@@ -266,6 +276,12 @@ class MemoryCommerceRepository implements CommerceRepository {
     return { policy: updated, validation, discrepancies: validation.discrepancies };
   }
   async recordOffer(context: TrustedRequestContext, offer: OfferRecord) { this.state(context).offers.push(offer); }
+  async recordApproval() { /* Runtime records are the source of truth in memory-backed tests. */ }
+  async updateApproval() { /* Runtime records are the source of truth in memory-backed tests. */ }
+  async recordTransaction() { /* Runtime records are the source of truth in memory-backed tests. */ }
+  async updateTransactionStatus() { /* Runtime records are the source of truth in memory-backed tests. */ }
+  async recordPayment() { /* Runtime records are the source of truth in memory-backed tests. */ }
+  async updatePayment() { /* Runtime records are the source of truth in memory-backed tests. */ }
   async recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>) {
     this.state(context).audit.push({ ...event, id: id("audit"), organizationId: context.organizationId, actorType: event.actorType || context.actorType, actorId: event.actorId ?? context.actorId, correlationId: event.correlationId || context.correlationId, createdAt: now() });
   }
@@ -422,6 +438,24 @@ class PostgresCommerceRepository implements CommerceRepository {
   async recordOffer(context: TrustedRequestContext, offer: OfferRecord) {
     const evaluation = offer.evaluation;
     await getDb().insert((await import("../../../db/schema")).offers).values({ id: offer.id, organizationId: context.organizationId, shoppingSessionId: offer.sessionId, productId: offer.productId, policyVersionId: offer.policyVersionId, quantity: offer.quantity, requestedPricePaise: evaluation.requestedPricePaise, requestedDiscountBps: offer.requestedDiscountBps, outcome: evaluation.outcome, approvedPricePaise: evaluation.approvedPricePaise ?? null, counterPricePaise: evaluation.counterPricePaise ?? null, maxDiscountBps: evaluation.maxDiscountBps ?? null, requiresApproval: evaluation.requiresApproval, matchedRules: evaluation.matchedRules, evidence: evaluation.evidence });
+  }
+  async recordApproval(context: TrustedRequestContext, approval: ApprovalLedgerRecord) {
+    await getDb().insert(approvalRequests).values({ id: approval.id, organizationId: context.organizationId, offerId: approval.offerId, status: approval.status, decision: approval.decision ?? null, decidedBy: approval.decidedBy ?? null, decidedAt: approval.decidedAt ? new Date(approval.decidedAt) : null, createdAt: approval.createdAt ? new Date(approval.createdAt) : undefined }).onConflictDoNothing();
+  }
+  async updateApproval(context: TrustedRequestContext, approvalId: string, update: Pick<ApprovalLedgerRecord, "status" | "decision" | "decidedBy" | "decidedAt">) {
+    await getDb().update(approvalRequests).set({ status: update.status, decision: update.decision ?? null, decidedBy: update.decidedBy ?? null, decidedAt: update.decidedAt ? new Date(update.decidedAt) : null }).where(and(eq(approvalRequests.organizationId, context.organizationId), eq(approvalRequests.id, approvalId)));
+  }
+  async recordTransaction(context: TrustedRequestContext, transaction: TransactionLedgerRecord) {
+    await getDb().insert(commerceTransactions).values({ id: transaction.id, organizationId: context.organizationId, shoppingSessionId: transaction.sessionId, offerId: transaction.offerId ?? null, policyVersionId: transaction.policyVersionId, status: transaction.status, totalPaise: transaction.totalPaise, currency: transaction.currency, createdAt: transaction.createdAt ? new Date(transaction.createdAt) : undefined }).onConflictDoNothing();
+  }
+  async updateTransactionStatus(context: TrustedRequestContext, transactionId: string, status: string) {
+    await getDb().update(commerceTransactions).set({ status }).where(and(eq(commerceTransactions.organizationId, context.organizationId), eq(commerceTransactions.id, transactionId)));
+  }
+  async recordPayment(context: TrustedRequestContext, payment: PaymentLedgerRecord) {
+    await getDb().insert(paymentRecords).values({ id: payment.id, organizationId: context.organizationId, transactionId: payment.transactionId, provider: payment.provider, providerPaymentId: payment.providerPaymentId ?? null, status: payment.status, amountPaise: payment.amountPaise, currency: payment.currency, createdAt: payment.createdAt ? new Date(payment.createdAt) : undefined }).onConflictDoNothing();
+  }
+  async updatePayment(context: TrustedRequestContext, paymentId: string, update: Pick<PaymentLedgerRecord, "status" | "providerPaymentId">) {
+    await getDb().update(paymentRecords).set({ status: update.status, providerPaymentId: update.providerPaymentId ?? null }).where(and(eq(paymentRecords.organizationId, context.organizationId), eq(paymentRecords.id, paymentId)));
   }
   async recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>) {
     await getDb().insert(auditEvents).values({ id: id("audit"), organizationId: context.organizationId, actorType: event.actorType || context.actorType, actorId: event.actorId ?? context.actorId, eventType: event.eventType, shoppingSessionId: event.shoppingSessionId ?? null, policyVersionId: event.policyVersionId ?? null, entityType: event.entityType, entityId: event.entityId, correlationId: event.correlationId || context.correlationId, metadata: event.metadata });

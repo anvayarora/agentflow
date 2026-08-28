@@ -88,6 +88,15 @@ export class RuntimeStore {
     return rows.map(mapRow).filter((record) => !record.expiresAt || Date.parse(record.expiresAt) > Date.now()) as Array<RuntimeRecord<T>>;
   }
 
+  /** Administrative listing that keeps expired records visible for operations/audit views. */
+  async listAll<T extends Record<string, unknown>>(context: TrustedRequestContext, kind: RuntimeKind, limit = 100): Promise<Array<RuntimeRecord<T>>> {
+    if (!isDatabaseConfigured()) {
+      return [...state(context.organizationId).values()].filter((record) => record.kind === kind).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, Math.min(limit, 200)) as Array<RuntimeRecord<T>>;
+    }
+    const rows = await getDb().select().from(runtimeRecords).where(and(eq(runtimeRecords.organizationId, context.organizationId), eq(runtimeRecords.kind, kind))).orderBy(desc(runtimeRecords.updatedAt)).limit(Math.min(limit, 200));
+    return rows.map(mapRow) as Array<RuntimeRecord<T>>;
+  }
+
   async put<T extends Record<string, unknown>>(context: TrustedRequestContext, record: Omit<RuntimeRecord<T>, "organizationId" | "createdAt" | "updatedAt"> & { createdAt?: string; updatedAt?: string }): Promise<RuntimeRecord<T>> {
     const createdAt = record.createdAt || now();
     const updatedAt = record.updatedAt || now();
@@ -106,6 +115,20 @@ export class RuntimeStore {
     const existing = await this.get<T>(context, kind, id);
     if (!existing) return null;
     return this.put(context, { ...existing, status: update.status || existing.status, payload: update.payload || existing.payload, expiresAt: update.expiresAt === undefined ? existing.expiresAt : update.expiresAt, updatedAt: now() });
+  }
+
+  /** Atomically transition a record. Used for approval decisions and replay-safe actions. */
+  async transition<T extends Record<string, unknown>>(context: TrustedRequestContext, kind: RuntimeKind, id: string, fromStatus: string, toStatus: string, payload: T): Promise<RuntimeRecord<T> | null> {
+    if (!isDatabaseConfigured()) {
+      const existing = state(context.organizationId).get(`${kind}:${id}`) as RuntimeRecord<T> | undefined;
+      if (existing) assertContext(existing, context);
+      if (!existing || existing.status !== fromStatus) return null;
+      const next = { ...existing, status: toStatus, payload, updatedAt: now() } as RuntimeRecord<T>;
+      state(context.organizationId).set(`${kind}:${id}`, next);
+      return next;
+    }
+    const updated = await getDb().update(runtimeRecords).set({ status: toStatus, payload, updatedAt: new Date() }).where(and(eq(runtimeRecords.organizationId, context.organizationId), eq(runtimeRecords.kind, kind), eq(runtimeRecords.id, id), eq(runtimeRecords.status, fromStatus))).returning();
+    return updated[0] ? mapRow(updated[0]) as RuntimeRecord<T> : null;
   }
 
   async consume<T extends Record<string, unknown>>(context: TrustedRequestContext, kind: RuntimeKind, id: string): Promise<RuntimeRecord<T> | null> {

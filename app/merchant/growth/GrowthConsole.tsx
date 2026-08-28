@@ -5,6 +5,7 @@ import { Badge } from "../merchant-ui";
 
 type Opportunity = { id: string; type: string; primaryProductId: string; secondaryProductIds: string[]; proposedAction: Record<string, unknown>; estimatedImpact: Record<string, unknown>; evidence: Record<string, unknown>; riskFlags: string[]; policyCompatibility: string; scoreBps: number; status: string };
 type Play = { id: string; opportunityId: string; maxIncentiveBps: number; minimumMarginBps: number; status: string; primaryProductId: string; secondaryProductIds: string[] };
+type Results = { history: string; opportunities: number; activePlays: number; verifiedPurchases: number; realizedAovPaise: number; realizedRevenuePaise: number; labels: { potential: string; simulated: string; realized: string; verified: string }; marginSafety: string };
 
 const money = (value: unknown) => typeof value === "number" ? `₹${(value / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—";
 
@@ -14,6 +15,8 @@ export default function GrowthConsole() {
   const [history, setHistory] = useState("INSUFFICIENT_HISTORY");
   const [message, setMessage] = useState("Scan observed catalogue signals to get started.");
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<"opportunities" | "results">("opportunities");
+  const [results, setResults] = useState<Results | null>(null);
 
   const load = async () => {
     const [opportunityResponse, playResponse] = await Promise.all([fetch("/api/merchant/growth/opportunities"), fetch("/api/merchant/growth/plays")]);
@@ -21,6 +24,8 @@ export default function GrowthConsole() {
     const playBody = await playResponse.json() as { plays?: Play[] };
     setOpportunities(opportunityBody.opportunities || []);
     setPlays(playBody.plays || []);
+    const resultResponse = await fetch("/api/merchant/growth/results");
+    if (resultResponse.ok) setResults(await resultResponse.json() as Results);
   };
 
   const scan = async () => {
@@ -47,7 +52,12 @@ export default function GrowthConsole() {
     await load();
   };
 
-  return <div className="growth-console"><div className="growth-console-head"><div><span className="section-label">Observed signals</span><h3>Opportunity review</h3><p>{message}</p></div><button className="button button-dark" type="button" onClick={scan} disabled={loading}>{loading ? "Scanning…" : "Scan catalogue"} <span>✦</span></button></div><div className="growth-meta"><Badge tone={history === "OBSERVED" ? "success" : "warning"}>{history === "OBSERVED" ? "Sales history observed" : "Insufficient history"}</Badge><span>Private economics stay server-side · simulated impact is never realized revenue</span></div><div className="growth-grid">{opportunities.length ? opportunities.map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} onCreate={() => createPlay(opportunity.id)} />) : <div className="workspace-card growth-empty"><span className="compile-empty-mark">✦</span><h3>No opportunities yet.</h3><p>Run a scan to evaluate current stock, margin headroom, and deterministic category complements.</p></div>}</div>{plays.length ? <section className="workspace-card growth-plays"><div className="card-heading"><div><span className="section-label">Actionable strategies</span><h3>Growth plays</h3></div><span className="section-label">Policy-gated</span></div><div className="growth-play-list">{plays.map((play) => <article className="growth-play-row" key={play.id}><div><strong>{play.primaryProductId}{play.secondaryProductIds.length ? ` + ${play.secondaryProductIds.join(", ")}` : ""}</strong><small>Max incentive {(play.maxIncentiveBps / 100).toFixed(2)}% · margin floor {(play.minimumMarginBps / 100).toFixed(2)}%</small></div><Badge tone={play.status === "ACTIVE" ? "success" : "neutral"}>{play.status}</Badge><div className="growth-play-actions"><button className="button button-light" type="button" onClick={() => playAction(play.id, "simulate")}>Simulate</button><button className="button button-dark" type="button" onClick={() => playAction(play.id, "activate")} disabled={play.status === "ACTIVE"}>Activate</button></div></article>)}</div></section> : null}</div>;
+  return <div className="growth-console"><div className="growth-console-head"><div><span className="section-label">Observed signals</span><h3>{view === "results" ? "Growth results" : "Opportunity review"}</h3><p>{message}</p></div><div className="growth-head-actions"><button className="button button-light" type="button" onClick={() => setView(view === "results" ? "opportunities" : "results")}>{view === "results" ? "Review opportunities" : "View results"}</button><button className="button button-dark" type="button" onClick={scan} disabled={loading}>{loading ? "Scanning…" : "Scan catalogue"} <span>✦</span></button></div></div><div className="growth-meta"><Badge tone={history === "OBSERVED" ? "success" : "warning"}>{history === "OBSERVED" ? "Sales history observed" : "Insufficient history"}</Badge><span>Private economics stay server-side · simulated impact is never realized revenue</span></div>{view === "results" ? <ResultsView results={results} /> : <><div className="growth-grid">{opportunities.length ? opportunities.map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} onCreate={() => createPlay(opportunity.id)} />) : <div className="workspace-card growth-empty"><span className="compile-empty-mark">✦</span><h3>No opportunities yet.</h3><p>Run a scan to evaluate current stock, margin headroom, and deterministic category complements.</p></div>}</div>{plays.length ? <section className="workspace-card growth-plays"><div className="card-heading"><div><span className="section-label">Actionable strategies</span><h3>Growth plays</h3></div><span className="section-label">Policy-gated</span></div><div className="growth-play-list">{plays.map((play) => <article className="growth-play-row" key={play.id}><div><strong>{play.primaryProductId}{play.secondaryProductIds.length ? ` + ${play.secondaryProductIds.join(", ")}` : ""}</strong><small>Max incentive {(play.maxIncentiveBps / 100).toFixed(2)}% · margin floor {(play.minimumMarginBps / 100).toFixed(2)}%</small></div><Badge tone={play.status === "ACTIVE" ? "success" : "neutral"}>{play.status}</Badge><div className="growth-play-actions"><button className="button button-light" type="button" onClick={() => playAction(play.id, "simulate")}>Simulate</button><button className="button button-dark" type="button" onClick={() => playAction(play.id, "activate")} disabled={play.status === "ACTIVE"}>Activate</button></div></article>)}</div></section> : null}</>}</div>;
+}
+
+function ResultsView({ results }: { results: Results | null }) {
+  if (!results) return <div className="workspace-card growth-empty"><h3>Results are loading.</h3><p>Only persisted and provider-verified activity is counted.</p></div>;
+  return <div className="growth-results-grid"><article className="workspace-card result-card"><span className="section-label">Funnel</span><strong>{results.opportunities} → {results.activePlays} → {results.verifiedPurchases}</strong><p>Opportunities · active plays · verified purchases</p></article><article className="workspace-card result-card"><span className="section-label">Realized AOV lift</span><strong>{money(results.realizedAovPaise)}</strong><p>{results.labels.realized} · no simulated revenue included</p></article><article className="workspace-card result-card"><span className="section-label">Verified revenue</span><strong>{money(results.realizedRevenuePaise)}</strong><p>{results.history} · provider-verified only</p></article><article className="workspace-card result-card"><span className="section-label">Margin safety</span><strong>Protected</strong><p>{results.marginSafety}</p></article></div>;
 }
 
 function OpportunityCard({ opportunity, onCreate }: { opportunity: Opportunity; onCreate: () => void }) {
