@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     authorize.searchParams.set("scope", scopes.join(","));
     authorize.searchParams.set("redirect_uri", redirectUri);
     authorize.searchParams.set("state", state);
-    const response = Response.redirect(authorize.toString(), 302);
+    const response = new Response(null, { status: 302, headers: { location: authorize.toString() } });
     response.headers.set("set-cookie", `agentflow_shopify_oauth_state=${encodeURIComponent(state)}; Max-Age=600; Path=/; HttpOnly; Secure; SameSite=Lax`);
     return response;
   }
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
   const grantedScopes = (payload.scope || "").split(",").map((scope) => scope.trim()).filter(Boolean);
   if (!grantedScopes.includes("write_products")) return reject("Shopify did not grant write_products.", 403);
   await persistShopifyAdminAccessToken(context(request), shop, payload.access_token, grantedScopes);
-  const response = Response.redirect(`${publicUrl()}/merchant/connectors?shopify=connected`, 302);
+  const response = new Response(null, { status: 302, headers: { location: `${publicUrl()}/merchant/connectors?shopify=connected` } });
   response.headers.set("set-cookie", "agentflow_shopify_oauth_state=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax");
   return response;
 }
