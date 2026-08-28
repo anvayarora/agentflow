@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const schema = z.object({
   sessionId: z.string().trim().min(1).max(255).optional(),
   message: z.string().trim().min(1).max(2000),
-  storefrontContext: z.object({ pageType: z.string().max(40).optional(), url: z.string().url().max(2048).optional() }).strict().optional(),
+  storefrontContext: z.object({ pageType: z.enum(["home", "collection", "product", "search", "cart", "other"]).optional(), currentProductId: z.string().max(255).optional(), currentCollection: z.string().max(120).optional(), url: z.string().url().max(2048).optional() }).strict().optional(),
 }).strict();
 
 export async function POST(request: Request) {

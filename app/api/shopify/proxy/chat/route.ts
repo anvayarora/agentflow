@@ -10,6 +10,8 @@ export const runtime = "nodejs";
 const storefrontContextSchema = z.object({
   url: z.string().url().max(2048).optional(),
   pageType: z.enum(["home", "collection", "product", "search", "cart", "other"]).optional(),
+  currentProductId: z.string().max(255).optional(),
+  currentCollection: z.string().max(120).optional(),
   hintedProductId: z.string().max(255).optional(),
   hintedVariantId: z.string().max(255).optional(),
 }).strict();

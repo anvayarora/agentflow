@@ -4,7 +4,7 @@ application_url = "https://YOUR-AGENTFLOW-DOMAIN"
 embedded = false
 
 [access_scopes]
-scopes = ""
+scopes = "read_products,write_products"
 
 [app_proxy]
 url = "https://YOUR-AGENTFLOW-DOMAIN/api/shopify/proxy"

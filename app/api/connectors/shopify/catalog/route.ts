@@ -36,7 +36,7 @@ export async function GET() {
   const token = storefrontToken || adminToken;
   if (!token) return fallback("Add a Shopify Storefront or Admin access token to enable live catalogue sync.");
 
-  const apiVersion = getEnv("SHOPIFY_API_VERSION") || "2025-10";
+  const apiVersion = getEnv("SHOPIFY_API_VERSION") || "2026-07";
   const adminMode = !storefrontToken && Boolean(adminToken);
   const endpoint = adminMode ? `https://${domain}/admin/api/${apiVersion}/graphql.json` : `https://${domain}/api/${apiVersion}/graphql.json`;
   const query = adminMode

@@ -370,7 +370,7 @@ export class ShopifyUcpClient {
   }
 
   async createCart(lineItems: Array<{ variantId: string; quantity: number }>, context: JsonRecord = configuredUcpContext() || {}) {
-    const payload = await this.call("tools/call", { name: "create_cart", arguments: { cart: { line_items: lineItems.map((line) => ({ quantity: line.quantity, item: { id: line.variantId } })), ...(context ? { context } : {}) } } });
+    const payload = await this.call("tools/call", { name: "create_cart", arguments: { cart: { line_items: lineItems.map((line) => ({ quantity: line.quantity, item: { id: line.variantId } })), ...(context ? { context } : {}) }, meta: { "idempotency-key": crypto.randomUUID() } } });
     return mapCart(extractCart(payload));
   }
 
@@ -388,7 +388,7 @@ export class ShopifyUcpClient {
       ...(desired.buyer || current.buyer && Object.keys(current.buyer).length ? { buyer: desired.buyer || current.buyer } : {}),
       ...(desired.signals || current.signals && Object.keys(current.signals).length ? { signals: desired.signals || current.signals } : {}),
     };
-    const payload = await this.call("tools/call", { name: "update_cart", arguments: { id, cart } });
+    const payload = await this.call("tools/call", { name: "update_cart", arguments: { id, cart, meta: { "idempotency-key": crypto.randomUUID() } } });
     return mapCart(extractCart(payload));
   }
 

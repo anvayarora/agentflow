@@ -7,7 +7,9 @@ embedded = false
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = ""
+# Store Bootstrap uses the Admin GraphQL productSet query/mutation. Inventory
+# remains Shopify-owned by default, so write_inventory is intentionally omitted.
+scopes = "read_products,write_products"
 
 [app_proxy]
 url = "https://agentflow-buildathon.vercel.app/api/shopify/proxy"

@@ -4,7 +4,7 @@ import { getCommerceRepository, type SessionRecord } from "../server/repositorie
 import type { TrustedRequestContext } from "../server/context";
 import { getRuntimeStore, runtimeKinds, type RuntimeRecord } from "../server/runtime/store";
 import { hashCart, type CanonicalCart } from "./cart";
-import { getCart } from "./catalog-service";
+import { getCart, getProduct as getCatalogueProduct } from "./catalog-service";
 
 export type OfferPayload = {
   sessionId: string;
@@ -52,7 +52,21 @@ async function currentCartHash(context: TrustedRequestContext, session: SessionR
 export async function requestOffer(context: TrustedRequestContext, input: { sessionId: string; productId: string; variantId?: string; quantity: number; requestedUnitPricePaise?: number; requestedDiscountBps?: number }) {
   const repository = getCommerceRepository();
   const session = await sessionFor(context, input.sessionId);
-  const [customer, policy, product] = await Promise.all([repository.getCustomer(context, session.customerId), repository.getCurrentPolicy(context), repository.getProduct(context, input.productId)]);
+  const activeOffers = await getRuntimeStore().list<OfferPayload>(context, runtimeKinds.offer);
+  const maxRequests = Math.min(10, Math.max(1, Number.parseInt(process.env.MAX_OFFER_REQUESTS_PER_SESSION || "3", 10) || 3));
+  const cooldownSeconds = Math.min(86_400, Math.max(0, Number.parseInt(process.env.OFFER_COOLDOWN_SECONDS || "0", 10) || 0));
+  const sessionOffers = activeOffers.filter((offer) => offer.payload.sessionId === session.id && offer.payload.status !== "REJECTED");
+  if (sessionOffers.length >= maxRequests) throw new Error("This shopper session has reached its offer request limit.");
+  if (cooldownSeconds > 0 && sessionOffers.some((offer) => Date.parse(offer.payload.createdAt) + cooldownSeconds * 1000 > Date.now())) throw new Error("Please wait before requesting another offer.");
+  const [customer, policy] = await Promise.all([repository.getCustomer(context, session.customerId), repository.getCurrentPolicy(context)]);
+  let product = await repository.getProduct(context, input.productId);
+  if (!product && session.shopifyShopDomain) {
+    const publicProduct = await getCatalogueProduct(context, session, input.productId);
+    if (publicProduct && "title" in publicProduct) {
+      const variant = "variants" in publicProduct && Array.isArray(publicProduct.variants) ? publicProduct.variants.find((entry) => !input.variantId || entry.id === input.variantId) || publicProduct.variants[0] : undefined;
+      product = { id: publicProduct.id, organizationId: context.organizationId, externalId: publicProduct.id, sku: variant?.sku || publicProduct.id, name: publicProduct.title, description: publicProduct.description, category: publicProduct.collections[0]?.title || "Connected catalogue", brand: null, currency: publicProduct.currency, listPricePaise: Math.round((variant?.priceMinorUnits ?? publicProduct.priceMinorUnits) * (publicProduct.currency === "INR" ? 1 : 100)), costPaise: null, stock: variant?.available === false ? 0 : 1, attributes: {}, tags: publicProduct.tags, imageUrl: publicProduct.media[0] || null, source: "shopify-ucp", sourceUpdatedAt: new Date() };
+    }
+  }
   if (!customer || !policy) throw new Error("Commerce policy context is unavailable.");
   if (!product) throw new Error("Negotiated pricing is unavailable for this catalogue item until it is linked to merchant economics.");
   const requestedPricePaise = input.requestedUnitPricePaise ?? Math.max(0, Math.round(product.listPricePaise * (1 - (input.requestedDiscountBps || 0) / 10_000)));

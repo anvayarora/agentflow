@@ -20,6 +20,10 @@ export const storefrontToolSchemas = {
   get_approval_status: z.object({ approvalId: id }).strict(),
   create_checkout: z.object({}).strict(),
   get_payment_status: z.object({ transactionId: id }).strict(),
+  add_to_shortlist: z.object({ productIds: z.array(id).min(1).max(12) }).strict(),
+  remove_from_shortlist: z.object({ productIds: z.array(id).min(1).max(12) }).strict(),
+  open_shortlist: z.object({}).strict(),
+  navigate_to_product: z.object({ productId: id }).strict(),
 } as const;
 
 export type StorefrontToolName = keyof typeof storefrontToolSchemas;

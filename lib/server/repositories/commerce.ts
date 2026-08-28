@@ -38,6 +38,24 @@ export type SessionCartUpdate = {
   cartHash?: string | null;
 };
 
+export type CatalogueProductInput = {
+  id?: string;
+  externalId?: string | null;
+  sku: string;
+  name: string;
+  description: string;
+  category: string;
+  brand?: string | null;
+  currency?: string;
+  listPricePaise: number;
+  costPaise?: number | null;
+  stock?: number;
+  attributes?: Record<string, unknown>;
+  tags?: string[];
+  imageUrl?: string | null;
+  source?: string;
+};
+
 export type OfferRecord = {
   id: string;
   organizationId: string;
@@ -58,6 +76,7 @@ export type CommerceRepository = {
   createShopifySession(context: TrustedRequestContext, input: ShopifySessionInput): Promise<SessionRecord>;
   getSession(context: TrustedRequestContext, sessionId: string): Promise<SessionRecord | null>;
   updateSessionCart(context: TrustedRequestContext, sessionId: string, update: SessionCartUpdate): Promise<SessionRecord | null>;
+  upsertCatalogueProduct(context: TrustedRequestContext, input: CatalogueProductInput): Promise<CanonicalProduct>;
   updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; supplier?: string | null; privateTags?: string[] }): Promise<CanonicalProduct | null>;
   getCurrentPolicy(context: TrustedRequestContext): Promise<PolicyVersionIR | null>;
   getPolicyVersion(context: TrustedRequestContext, versionId: string): Promise<PolicyVersionIR | null>;
@@ -177,6 +196,15 @@ class MemoryCommerceRepository implements CommerceRepository {
     if (!current) return null;
     const next = { ...current, ...(update.currency ? { currency: update.currency } : {}), cartTotalPaise: update.cartTotalPaise, shopifyCartId: update.shopifyCartId === undefined ? current.shopifyCartId : update.shopifyCartId, canonicalLineItems: update.canonicalLineItems, cartHash: update.cartHash === undefined ? current.cartHash : update.cartHash, lastSyncedAt: now() };
     this.state(context).sessions.set(sessionId, next);
+    return next;
+  }
+  async upsertCatalogueProduct(context: TrustedRequestContext, input: CatalogueProductInput) {
+    if (!Number.isSafeInteger(input.listPricePaise) || input.listPricePaise < 0) throw new Error("Public price must be a non-negative integer amount in paise.");
+    if (!Number.isSafeInteger(input.stock ?? 0) || (input.stock ?? 0) < 0) throw new Error("Inventory must be a non-negative whole number.");
+    const rows = this.state(context).products;
+    const current = rows.find((product) => product.sku.toLowerCase() === input.sku.toLowerCase());
+    const next: CanonicalProduct = { id: current?.id || input.id || `product-${createHash("sha256").update(`${context.organizationId}:${input.sku}`).digest("hex").slice(0, 24)}`, organizationId: context.organizationId, externalId: input.externalId ?? current?.externalId ?? null, sku: input.sku, name: input.name, description: input.description, category: input.category, brand: input.brand ?? current?.brand ?? null, currency: input.currency || current?.currency || "INR", listPricePaise: input.listPricePaise, costPaise: input.costPaise === undefined ? current?.costPaise ?? null : input.costPaise, stock: input.stock ?? current?.stock ?? 0, attributes: input.attributes || current?.attributes || {}, tags: input.tags || current?.tags || [], imageUrl: input.imageUrl ?? current?.imageUrl ?? null, source: input.source || current?.source || "bootstrap", sourceUpdatedAt: new Date() };
+    if (current) rows[rows.indexOf(current)] = next; else rows.push(next);
     return next;
   }
   async updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; supplier?: string | null; privateTags?: string[] }) {
@@ -308,6 +336,16 @@ class PostgresCommerceRepository implements CommerceRepository {
     if (!current) return null;
     await getDb().update(shoppingSessions).set({ ...(update.currency ? { currency: update.currency } : {}), cart: { totalPaise: update.cartTotalPaise }, shopifyCartId: update.shopifyCartId === undefined ? current.shopifyCartId : update.shopifyCartId, canonicalLineItems: update.canonicalLineItems, cartHash: update.cartHash === undefined ? current.cartHash : update.cartHash, lastSyncedAt: new Date(), updatedAt: new Date() }).where(and(eq(shoppingSessions.organizationId, context.organizationId), eq(shoppingSessions.id, sessionId)));
     return this.getSession(context, sessionId);
+  }
+  async upsertCatalogueProduct(context: TrustedRequestContext, input: CatalogueProductInput) {
+    if (!Number.isSafeInteger(input.listPricePaise) || input.listPricePaise < 0) throw new Error("Public price must be a non-negative integer amount in paise.");
+    if (!Number.isSafeInteger(input.stock ?? 0) || (input.stock ?? 0) < 0) throw new Error("Inventory must be a non-negative whole number.");
+    const existing = await getDb().select().from(products).where(and(eq(products.organizationId, context.organizationId), eq(products.sku, input.sku))).limit(1);
+    const idValue = existing[0]?.id || input.id || `product-${createHash("sha256").update(`${context.organizationId}:${input.sku}`).digest("hex").slice(0, 24)}`;
+    await getDb().insert(products).values({ id: idValue, organizationId: context.organizationId, externalId: input.externalId ?? null, sku: input.sku, name: input.name, description: input.description, category: input.category, brand: input.brand ?? null, currency: input.currency || "INR", listPricePaise: input.listPricePaise, costPaise: input.costPaise ?? null, stock: input.stock ?? 0, attributes: input.attributes || {}, tags: input.tags || [], imageUrl: input.imageUrl ?? null, source: input.source || "bootstrap", sourceUpdatedAt: new Date() }).onConflictDoUpdate({ target: [products.organizationId, products.sku], set: { externalId: input.externalId ?? null, name: input.name, description: input.description, category: input.category, brand: input.brand ?? null, currency: input.currency || "INR", listPricePaise: input.listPricePaise, ...(input.costPaise === undefined ? {} : { costPaise: input.costPaise }), stock: input.stock ?? 0, attributes: input.attributes || {}, tags: input.tags || [], imageUrl: input.imageUrl ?? null, source: input.source || "bootstrap", sourceUpdatedAt: new Date(), updatedAt: new Date() } });
+    const saved = await this.getProduct(context, idValue);
+    if (!saved) throw new Error("Catalogue product could not be persisted.");
+    return saved;
   }
   async updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; supplier?: string | null; privateTags?: string[] }) {
     if (update.costPaise !== undefined && update.costPaise !== null && (!Number.isSafeInteger(update.costPaise) || update.costPaise < 0)) throw new Error("Private product cost must be a non-negative integer amount in paise.");

@@ -45,6 +45,8 @@ PAYMENT_PROVIDER
 CATALOG_PROVIDER
 LLM_PROVIDER
 DEMO_MODE
+MAX_OFFER_REQUESTS_PER_SESSION
+OFFER_COOLDOWN_SECONDS
 ```
 
 ## Deployment process
@@ -61,6 +63,20 @@ DEMO_MODE
 
 Check `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, `/customer` (legacy reference only), `/profiles/agentflow-ucp.json`, `/api/catalogue/products`, `/api/commerce/evaluate`, and `/api/shopify/ucp/diagnostics`.
 
+For Store Bootstrap, use `POST /api/merchant/catalog/bootstrap` with a CSV/XLSX
+to create a persisted review preview, then send `{ "importRunId": "…", "confirm": true }`
+only after the merchant confirms the mapping. Shopify writes use the current Admin
+GraphQL `productSet` mutation and are reconciled by SKU/handle. Shopify remains the
+inventory source of truth by default, so imports do not overwrite quantities. To make
+AgentFlow the inventory source of truth, set `AGENTFLOW_CATALOGUE_INVENTORY_SOURCE=agentflow`
+and add the required inventory scopes; the service then requires a compare-and-set
+inventory implementation before enabling absolute writes.
+
+The signed storefront action surface is `/apps/agentflow/ui-action` (proxied to
+`/api/shopify/proxy/ui-action`) and supports only schema-validated product view,
+shortlist, compare, cart, offer, and checkout actions. Shopper preferences, page
+context, conversation history, and shortlist IDs are persisted per shopping session.
+
 The customer request must contain only a session, product, quantity, and proposed price/discount. Confirm that the response carries a published policy version, matched rules, evidence, and one of `ALLOW`, `COUNTER`, `ESCALATE`, or `DENY`.
 
 ## Rollback procedure
@@ -70,8 +86,10 @@ Keep published policy versions immutable. Roll back an application release throu
 ## Current integrations
 
 - Catalogue: Shopify UCP is the buyer-facing source when verified; the canonical Haven Home seed remains the safe local fallback and private-cost join.
-- Payments: mock/test presentation only; no live payment action is wired by this task.
+- Payments: existing server-authorized Test/mock path; no live payment mode.
 - LLM: NVIDIA NIM may propose Policy IR drafts when `NIM_API_KEY` is present; deterministic compiler fallback otherwise.
+- Storefront AI: NVIDIA Nemotron Ultra is the reasoning provider; the shopper agent
+  has no provider fallback and receives compact public product projections only.
 - Shopify: Haven Home development store target, UCP 2026-04-08 catalog/cart connector, signed App Proxy contract, and Theme App Extension source under `shopify/`.
 - WooCommerce: not connected.
 

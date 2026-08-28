@@ -342,6 +342,43 @@ export const runtimeRecords = pgTable("runtime_records", {
   organizationKindIdUnique: uniqueIndex("runtime_records_organization_kind_id_idx").on(table.organizationId, table.kind, table.id),
 }));
 
+/** A durable, reviewable catalogue bootstrap/import run. */
+export const importRuns = pgTable("import_runs", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  sourceFile: text("source_file").notNull(),
+  sourceType: text("source_type").notNull(),
+  status: text("status").notNull(),
+  mappings: jsonb("mappings").$type<Record<string, string>>().notNull(),
+  summary: jsonb("summary").$type<Record<string, unknown>>().notNull(),
+  errors: jsonb("errors").$type<string[]>().notNull(),
+  warnings: jsonb("warnings").$type<string[]>().notNull(),
+  rows: jsonb("rows").$type<unknown[]>().notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Stable reconciliation between an AgentFlow product/variant and Shopify. */
+export const productMappings = pgTable("product_mappings", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  productId: text("product_id").notNull().references(() => products.id),
+  shopDomain: text("shop_domain").notNull(),
+  shopifyProductGid: text("shopify_product_gid").notNull(),
+  shopifyVariantGid: text("shopify_variant_gid"),
+  sku: text("sku").notNull(),
+  source: text("source").notNull(),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => ({
+  organizationProductUnique: uniqueIndex("product_mappings_org_product_idx").on(table.organizationId, table.productId),
+  organizationSkuUnique: uniqueIndex("product_mappings_org_shop_sku_idx").on(table.organizationId, table.shopDomain, table.sku),
+}));
+
+export type ImportRunRecord = typeof importRuns.$inferSelect;
+export type ProductMappingRecord = typeof productMappings.$inferSelect;
+
 export type Organization = typeof organizations.$inferSelect;
 export type ProductRecord = typeof products.$inferSelect;
 export type CustomerRecord = typeof customers.$inferSelect;

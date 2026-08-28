@@ -13,6 +13,9 @@ export const runtimeKinds = {
   webhook: "PAYMENT_WEBHOOK",
   agentTurn: "AGENT_TURN",
   simulation: "SIMULATION",
+  shortlist: "SHOPPER_SHORTLIST",
+  pageContext: "SHOPPER_PAGE_CONTEXT",
+  conversation: "SHOPPER_CONVERSATION",
 } as const;
 
 export type RuntimeKind = (typeof runtimeKinds)[keyof typeof runtimeKinds];
