@@ -18,7 +18,7 @@ The current PostgreSQL service is Aiven `agentflow-postgres` on the free `free-1
 
 - Local: `npm run dev`; without `DATABASE_URL`, a deterministic seeded memory repository keeps the demo usable.
 - Preview: Vercel Node runtime with PostgreSQL environment variables configured. The deployment must run the migration and seed process against the selected database before testing.
-- Production: the existing `agentflow-buildathon` Git integration currently auto-promotes pushes to `main` to its Production target. This task did not run a manual promotion; reconfigure the project’s main-branch target or use a release branch if Production must remain gated after red-team/E2E verification.
+- Production: the live `agentflow` Git integration currently auto-promotes pushes to `main` to its Production target. The current canonical alias is `https://agentflow-beige-eight.vercel.app`. Keep promotion gated operationally until red-team/E2E verification is complete.
 
 ## Environment variable names
 
