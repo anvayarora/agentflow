@@ -43,6 +43,12 @@ function customerFacingMessage(text: string, products: unknown[]) {
   return `I found a few good options: ${first}, and ${last}. I can compare them by size, finish, or price to help you choose.`;
 }
 
+function stripReasoningMarkers(text: string) {
+  const closingMarker = text.lastIndexOf("</think>");
+  const visible = closingMarker >= 0 ? text.slice(closingMarker + "</think>".length) : text;
+  return visible.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
 async function loadPreferences(context: TrustedRequestContext, sessionId: string) {
   const record = await getRuntimeStore().get<ShopperPreferences>(context, runtimeKinds.shopperPreferences, sessionId);
   return record ? shopperPreferencesSchema.parse(record.payload) : emptyShopperPreferences;
@@ -106,7 +112,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
   };
 
   try {
-    const agent = new ToolLoopAgent({ id: "agentflow-storefront", model: getNimModel(), instructions: STOREFRONT_AGENT_INSTRUCTIONS, tools, providerOptions: { "nvidia-nim": { chat_template_kwargs: { enable_thinking: false } } }, stopWhen: isStepCount(4), temperature: 0, maxOutputTokens: 512 });
+    const agent = new ToolLoopAgent({ id: "agentflow-storefront", model: getNimModel(), instructions: STOREFRONT_AGENT_INSTRUCTIONS, tools, providerOptions: { nvidiaNim: { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } } }, stopWhen: isStepCount(4), temperature: 1, topP: 0.95, maxOutputTokens: 256 });
     const result = await agent.generate({ prompt: `Trusted storefront session context: currency=${session.currency}; preferences=${JSON.stringify(preferences)}; page=${input.storefrontContext?.pageType || "unknown"}.\nCustomer request: ${message}`, timeout: { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 90_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 30_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
     if (products.length === 0 && preferences.categories.length > 0) {
       const recoveryQuery = preferences.categories[0];
@@ -115,12 +121,16 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
       products.push(...recovery);
       await repository.recordAudit(context, { eventType: "AGENT_TOOL_SUCCEEDED", entityType: "agent_tool", entityId: `${sessionId}:discovery-recovery`, shoppingSessionId: sessionId, metadata: { tool: "search_products", source: "deterministic_discovery_recovery", resultCount: recovery.length } });
     }
-    const text = customerFacingMessage(result.text.trim() || "I can help you explore the catalogue and your cart.", products);
+    const text = customerFacingMessage(stripReasoningMarkers(result.text.trim()) || "I can help you explore the catalogue and your cart.", products);
     await repository.recordAudit(context, { eventType: "AGENT_TURN_COMPLETED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { modelCalls: result.steps.length, toolSteps, responseLength: text.length } });
-    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3.5-lightning-30b-a3b", modelCalls: result.steps.length, toolSteps };
+    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b", modelCalls: result.steps.length, toolSteps };
   } catch (error) {
     const configuration = error instanceof NimConfigurationError;
+    console.error("[agentflow] storefront agent execution failed", {
+      name: error instanceof Error ? error.name : typeof error,
+      statusCode: typeof error === "object" && error !== null && "statusCode" in error ? String((error as { statusCode?: unknown }).statusCode ?? "") : undefined,
+    });
     await repository.recordAudit(context, { eventType: "TRANSACTION_FAILED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { reason: configuration ? "nim_not_configured" : "agent_execution_failed" } });
-    return { sessionId, message: configuration ? "The storefront assistant is not enabled for this environment yet." : safeMessage, status: configuration ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3.5-lightning-30b-a3b", modelCalls: 0, toolSteps };
+    return { sessionId, message: configuration ? "The storefront assistant is not enabled for this environment yet." : safeMessage, status: configuration ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b", modelCalls: 0, toolSteps };
   }
 }

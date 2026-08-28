@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     if (apiKey) {
       try {
         const baseUrl = (getEnv("NIM_BASE_URL") || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
-        const model = getEnv("NIM_MODEL_ID") || "nvidia/nemotron-3.5-lightning-30b-a3b";
+        const model = getEnv("NIM_MODEL_ID") || "nvidia/nemotron-3-ultra-550b-a55b";
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), NIM_REQUEST_TIMEOUT_MS);
         try {
