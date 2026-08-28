@@ -68,9 +68,11 @@ function productInput(rows: CatalogueImportRow[]) {
     productType: first.category,
     vendor: first.brand || undefined,
     tags: first.internalTags,
-    ...(variantValues.length > 1 ? { productOptions: [{ name: "Variant", position: 1, values: variantValues.map((name) => ({ name })) }] } : {}),
+    productOptions: variantValues.length > 1
+      ? [{ name: "Variant", position: 1, values: variantValues.map((name) => ({ name })) }]
+      : [{ name: "Title", position: 1, values: [{ name: "Default Title" }] }],
     ...(publicMetafields.length ? { metafields: publicMetafields } : {}),
-    variants: rows.map((row) => ({ sku: row.sku, price: (row.pricePaise / 100).toFixed(2), optionValues: row.variant ? [{ optionName: "Variant", name: row.variant }] : [], ...(row.imageUrl ? { file: { originalSource: row.imageUrl, alt: row.productName, filename: `${slug(row.sku)}.jpg`, contentType: "IMAGE" } } : {}) })),
+    variants: rows.map((row) => ({ sku: row.sku, price: (row.pricePaise / 100).toFixed(2), optionValues: row.variant ? [{ optionName: "Variant", name: row.variant }] : [{ optionName: "Title", name: "Default Title" }], ...(row.imageUrl ? { file: { originalSource: row.imageUrl, alt: row.productName, filename: `${slug(row.sku)}.jpg`, contentType: "IMAGE" } } : {}) })),
     ...(first.imageUrl ? { files: [{ originalSource: first.imageUrl, alt: first.productName, filename: `${slug(first.sku)}.jpg`, contentType: "IMAGE" }] } : {}),
   };
 }
