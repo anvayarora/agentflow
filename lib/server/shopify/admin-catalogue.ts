@@ -70,7 +70,7 @@ function productInput(rows: CatalogueImportRow[]) {
     tags: first.internalTags,
     ...(variantValues.length > 1 ? { productOptions: [{ name: "Variant", position: 1, values: variantValues.map((name) => ({ name })) }] } : {}),
     ...(publicMetafields.length ? { metafields: publicMetafields } : {}),
-    variants: rows.map((row) => ({ sku: row.sku, price: (row.pricePaise / 100).toFixed(2), ...(row.variant ? { optionValues: [{ optionName: "Variant", name: row.variant }] } : {}), ...(row.imageUrl ? { file: { originalSource: row.imageUrl, alt: row.productName, filename: `${slug(row.sku)}.jpg`, contentType: "IMAGE" } } : {}) })),
+    variants: rows.map((row) => ({ sku: row.sku, price: (row.pricePaise / 100).toFixed(2), optionValues: row.variant ? [{ optionName: "Variant", name: row.variant }] : [], ...(row.imageUrl ? { file: { originalSource: row.imageUrl, alt: row.productName, filename: `${slug(row.sku)}.jpg`, contentType: "IMAGE" } } : {}) })),
     ...(first.imageUrl ? { files: [{ originalSource: first.imageUrl, alt: first.productName, filename: `${slug(first.sku)}.jpg`, contentType: "IMAGE" }] } : {}),
   };
 }
