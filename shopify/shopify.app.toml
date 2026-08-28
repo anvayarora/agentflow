@@ -17,7 +17,7 @@ prefix = "apps"
 subpath = "agentflow"
 
 [auth]
-redirect_urls = [ "https://agentflow-beige-eight.vercel.app/" ]
+redirect_urls = [ "https://agentflow-beige-eight.vercel.app/", "https://agentflow-beige-eight.vercel.app/api/shopify/auth/callback" ]
 
 [webhooks]
 api_version = "2026-10"

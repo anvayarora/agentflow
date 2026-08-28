@@ -1,6 +1,9 @@
 import { products as demoProducts } from "../../../../../lib/catalogue";
 import type { Product } from "../../../../../lib/policy";
 import { shopifyPreviewStore } from "../../../../../lib/connectors";
+import { getTrustedRequestContext } from "../../../../../lib/server/context";
+import { getStoredShopifyAdminAccessToken } from "../../../../../lib/server/shopify/integration";
+import { normalizeShopDomain } from "../../../../../lib/server/shopify/ucp";
 
 const getEnv = (name: string) => (typeof process === "undefined" ? undefined : process.env[name]);
 
@@ -29,10 +32,10 @@ const mapLiveProduct = (node: LiveProductNode, index: number): Product => {
 
 const fallback = (warning?: string) => Response.json({ source: "demo", mode: "preview-only", store: shopifyPreviewStore, products: demoProducts.map((product) => ({ ...product, cost: null })), warning });
 
-export async function GET() {
+export async function GET(request: Request) {
   const domain = getEnv("SHOPIFY_STORE_DOMAIN") || shopifyPreviewStore.url.replace("https://", "");
   const storefrontToken = getEnv("SHOPIFY_STOREFRONT_ACCESS_TOKEN");
-  const adminToken = getEnv("SHOPIFY_ADMIN_ACCESS_TOKEN");
+  const adminToken = (await getStoredShopifyAdminAccessToken(getTrustedRequestContext(request).organizationId, normalizeShopDomain(domain)).catch(() => null)) || getEnv("SHOPIFY_ADMIN_ACCESS_TOKEN");
   const token = storefrontToken || adminToken;
   if (!token) return fallback("Add a Shopify Storefront or Admin access token to enable live catalogue sync.");
 

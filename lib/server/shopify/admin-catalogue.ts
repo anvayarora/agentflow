@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { TrustedRequestContext } from "../context";
 import { getCommerceRepository } from "../repositories/commerce";
 import { upsertProductMapping } from "../repositories/bootstrap";
+import { getStoredShopifyAdminAccessToken } from "./integration";
 import { normalizeShopDomain, configuredShopDomain } from "./ucp";
 import type { CatalogueImportRow } from "../../bootstrap/catalogue";
 
@@ -36,8 +37,8 @@ const mutation = `mutation AgentFlowProductSet($input: ProductSetInput!, $identi
   }
 }`;
 
-async function graphQL(query: string, variables: Json): Promise<Json> {
-  const token = env()?.SHOPIFY_ADMIN_ACCESS_TOKEN;
+async function graphQL(query: string, variables: Json, organizationId: string): Promise<Json> {
+  const token = await getStoredShopifyAdminAccessToken(organizationId, shopDomain()) || env()?.SHOPIFY_ADMIN_ACCESS_TOKEN;
   if (!token) throw new ShopifyAdminError("A Shopify Admin access token is required for catalogue bootstrap.", "SHOPIFY_ADMIN_NOT_CONFIGURED", 424);
   const response = await fetch(`https://${shopDomain()}/admin/api/${apiVersion()}/graphql.json`, { method: "POST", headers: { "content-type": "application/json", "x-shopify-access-token": token }, body: JSON.stringify({ query, variables }) });
   const payload = await response.json().catch(() => ({})) as Json;
@@ -85,7 +86,7 @@ export async function syncCatalogueRows(context: TrustedRequestContext, rows: Ca
     const first = productRows[0];
     try {
       const savedProducts = await Promise.all(productRows.map((row) => repository.upsertCatalogueProduct(context, { sku: row.sku, externalId: row.externalId, name: row.productName, description: row.description, category: row.category, brand: row.brand, currency: "INR", listPricePaise: row.pricePaise, costPaise: row.costPaise, stock: row.inventory, imageUrl: row.imageUrl, tags: row.internalTags, source: "shopify-bootstrap", attributes: { colour: row.colour, material: row.material, dimensions: row.dimensions, variant: row.variant, collection: row.collection, supplier: row.supplier } })));
-      const payload = await graphQL(mutation, { input: productInput(productRows), identifier: { handle: slug(first.sku) } });
+      const payload = await graphQL(mutation, { input: productInput(productRows), identifier: { handle: slug(first.sku) } }, context.organizationId);
       const productSet = (payload.data as Json | undefined)?.productSet as Json | undefined;
       const userErrors = Array.isArray(productSet?.userErrors) ? productSet.userErrors as Json[] : [];
       if (userErrors.length) throw new ShopifyAdminError("Shopify rejected one or more catalogue fields.", "SHOPIFY_PRODUCT_SET_ERROR", 400);
