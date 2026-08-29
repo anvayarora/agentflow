@@ -17,6 +17,10 @@ const env = () => (typeof process === "undefined" ? undefined : process.env);
 const apiVersion = () => env()?.SHOPIFY_API_VERSION || "2026-07";
 const shopDomain = () => normalizeShopDomain(env()?.SHOPIFY_STORE_DOMAIN || configuredShopDomain());
 const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || createHash("sha256").update(value).digest("hex").slice(0, 16);
+const sourceExtension = (value: string) => {
+  const extension = value.split("?")[0].match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
+  return extension && ["jpg", "jpeg", "png", "webp", "gif"].includes(extension) ? extension : "jpg";
+};
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character] || character);
 
 export type ShopifySyncResult = {
@@ -61,6 +65,7 @@ function productInput(rows: CatalogueImportRow[]) {
     ["colour", first.colour],
     ["dimensions", first.dimensions],
   ].flatMap(([key, value]) => value ? [{ namespace: "agentflow", key, type: "single_line_text_field", value }] : []);
+  const firstImageExtension = first.imageUrl ? sourceExtension(first.imageUrl) : "jpg";
   return {
     title: first.productName,
     handle: slug(first.sku),
@@ -72,8 +77,8 @@ function productInput(rows: CatalogueImportRow[]) {
       ? [{ name: "Variant", position: 1, values: variantValues.map((name) => ({ name })) }]
       : [{ name: "Title", position: 1, values: [{ name: "Default Title" }] }],
     ...(publicMetafields.length ? { metafields: publicMetafields } : {}),
-    variants: rows.map((row) => ({ sku: row.sku, price: (row.pricePaise / 100).toFixed(2), optionValues: row.variant ? [{ optionName: "Variant", name: row.variant }] : [{ optionName: "Title", name: "Default Title" }], ...(row.imageUrl ? { file: { originalSource: row.imageUrl, alt: row.productName, filename: `${slug(row.sku)}.jpg`, contentType: "IMAGE" } } : {}) })),
-    ...(first.imageUrl ? { files: [{ originalSource: first.imageUrl, alt: first.productName, filename: `${slug(first.sku)}.jpg`, contentType: "IMAGE" }] } : {}),
+    variants: rows.map((row) => ({ sku: row.sku, price: (row.pricePaise / 100).toFixed(2), optionValues: row.variant ? [{ optionName: "Variant", name: row.variant }] : [{ optionName: "Title", name: "Default Title" }], ...(row.imageUrl ? { file: { originalSource: row.imageUrl, alt: row.productName, filename: `${slug(row.sku)}.${sourceExtension(row.imageUrl)}`, contentType: "IMAGE" } } : {}) })),
+    ...(first.imageUrl ? { files: [{ originalSource: first.imageUrl, alt: first.productName, filename: `${slug(first.sku)}.${firstImageExtension}`, contentType: "IMAGE" }] } : {}),
   };
 }
 
