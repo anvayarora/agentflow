@@ -109,6 +109,16 @@ Keep published policy versions immutable. Roll back an application release throu
 
 The customer surface is a Shopify Theme App Extension app embed. It calls `/apps/agentflow/chat`, which Shopify proxies to `/api/shopify/proxy/chat`. AgentFlow verifies the Shopify HMAC signature, binds the verified shop domain to the Haven Home organization, and derives customer context only from Shopify's signed `logged_in_customer_id`.
 
+The live embed also exposes signed `/apps/agentflow/salespeople` and
+`/apps/agentflow/voice/*` proxy paths for salesperson selection, persistent voice
+sessions, Sarvam speech-to-text, text-to-speech, and voice turns. Page navigation
+commands (scroll, home, back, cart, and first-result) remain presentation-only;
+offers, cart changes, checkout, and payment decisions continue through the
+server-owned commerce tools and policy runtime.
+
 UCP calls are server-only and use the discovered merchant endpoint. Product and cart payloads are treated as commerce data, never as policy authority. Private cost and policy rules are not sent to the widget.
 
-The committed `shopify/shopify.app.toml.example` is intentionally placeholder-only. One-time Shopify Partner actions remain: authenticate Shopify CLI, create/link the development app, fill the deployed AgentFlow URL, deploy the Theme App Extension, configure the App Proxy, and enable the app embed in the Haven Home Theme Editor. Do not commit the generated local `shopify.app.toml`, API secret, or storefront password.
+The existing Shopify app and Theme App Extension are deployed to the Haven Home
+development store, with the app embed enabled in the live development theme.
+The committed `shopify/shopify.app.toml.example` remains placeholder-only. Do not
+commit the generated local `shopify.app.toml`, API secret, or storefront password.
