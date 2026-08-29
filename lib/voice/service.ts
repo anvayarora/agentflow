@@ -32,12 +32,12 @@ export async function ensureVoiceSession(context: TrustedRequestContext, session
   return { sessionId, salesperson: chosen, language, voiceEnabled, detectedLanguage: session.detectedLanguage || null, preferredScript: session.preferredScript || null };
 }
 
-export async function runVoiceTurn(input: { context: TrustedRequestContext; sessionId: string; message: string; salespersonProfileId?: string; language?: string; voiceEnabled?: boolean; storefrontContext?: Record<string, unknown> }): Promise<StorefrontAgentResult & { voice: { enabled: boolean; audioBase64?: string; mimeType?: "audio/wav"; requestId?: string | null; latencyMs?: number; cached?: boolean; provider: "SARVAM" | "TEXT_ONLY"; error?: string }; salesperson: SalespersonProfile; language: SalespersonLanguage; detectedLanguage: SalespersonLanguage }> {
+export async function runVoiceTurn(input: { context: TrustedRequestContext; sessionId: string; message: string; salespersonProfileId?: string; language?: string; voiceEnabled?: boolean; inputMode?: "text" | "voice"; storefrontContext?: Record<string, unknown> }): Promise<StorefrontAgentResult & { voice: { enabled: boolean; audioBase64?: string; mimeType?: "audio/wav"; requestId?: string | null; latencyMs?: number; cached?: boolean; provider: "SARVAM" | "TEXT_ONLY"; error?: string }; salesperson: SalespersonProfile; language: SalespersonLanguage; detectedLanguage: SalespersonLanguage }> {
   const language = normalizeLanguage(input.language || detectConversationLanguage(input.message));
   const session = await ensureVoiceSession(input.context, input.sessionId, input.salespersonProfileId, language, input.voiceEnabled !== false);
   const detectedLanguage = detectConversationLanguage(input.message);
   await getCommerceRepository().updateSessionVoice(input.context, input.sessionId, { detectedLanguage, preferredScript: detectedLanguage === "hi-IN" ? "Devanagari" : "Latin", preferredLanguage: language });
-  const result = await runStorefrontAgent({ ...input, language, salespersonProfileId: session.salesperson.id });
+  const result = await runStorefrontAgent({ ...input, language, salespersonProfileId: session.salesperson.id, inputMode: input.inputMode || "voice" });
   const voice = { enabled: session.voiceEnabled, provider: "TEXT_ONLY" as const } as { enabled: boolean; provider: "SARVAM" | "TEXT_ONLY"; audioBase64?: string; mimeType?: "audio/wav"; requestId?: string | null; latencyMs?: number; cached?: boolean; error?: string };
   if (session.voiceEnabled && result.status === "COMPLETED") {
     try {

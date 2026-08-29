@@ -72,7 +72,7 @@ async function savePreferences(context: TrustedRequestContext, sessionId: string
   await getRuntimeStore().put(context, { id: sessionId, kind: runtimeKinds.shopperPreferences, status: "ACTIVE", payload: preferences, createdAt: timestamp, updatedAt: timestamp });
 }
 
-export async function runStorefrontAgent(input: { context: TrustedRequestContext; sessionId: string; message: string; storefrontContext?: Record<string, unknown>; salespersonProfileId?: string; language?: SalespersonLanguage }): Promise<StorefrontAgentResult> {
+export async function runStorefrontAgent(input: { context: TrustedRequestContext; sessionId: string; message: string; storefrontContext?: Record<string, unknown>; salespersonProfileId?: string; language?: SalespersonLanguage; inputMode?: "text" | "voice" }): Promise<StorefrontAgentResult> {
   const { context, sessionId, message } = input;
   const turnStartedAt = Date.now();
   const repository = getCommerceRepository();
@@ -85,7 +85,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
   const preferences = updateShopperPreferences(message, await loadPreferences(context, sessionId));
   await savePreferences(context, sessionId, preferences);
   await appendConversation(context, sessionId, { role: "user", text: message });
-  await repository.recordAudit(context, { eventType: "AGENT_TURN_STARTED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { messageLength: message.length, preferenceFields: Object.keys(preferences).filter((key) => (preferences as Record<string, unknown>)[key] !== undefined).length, salespersonProfileId: salesperson?.id || null, salespersonDisplayName: salesperson?.displayName || null, speakerId: salesperson?.speakerId || null, language } });
+  await repository.recordAudit(context, { eventType: "AGENT_TURN_STARTED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { messageLength: message.length, inputMode: input.inputMode || "text", preferenceFields: Object.keys(preferences).filter((key) => (preferences as Record<string, unknown>)[key] !== undefined).length, salespersonProfileId: salesperson?.id || null, salespersonDisplayName: salesperson?.displayName || null, speakerId: salesperson?.speakerId || null, language } });
   await repository.recordAudit(context, { eventType: "SHOPPER_QUERY", entityType: "shopping_session", entityId: sessionId, shoppingSessionId: sessionId, metadata: { messageLength: message.length, pageType: safePageContext.pageType } });
 
   const products: unknown[] = [];
