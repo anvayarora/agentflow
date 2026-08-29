@@ -31,6 +31,11 @@ AGENTFLOW_DEMO_CUSTOMER_ID
 NIM_API_KEY
 NIM_MODEL_ID
 NIM_BASE_URL
+SARVAM_API_KEY
+SARVAM_BASE_URL
+SARVAM_STT_MODEL
+SARVAM_TTS_MODEL
+SARVAM_TIMEOUT_MS
 SHOPIFY_STORE_DOMAIN
 SHOPIFY_API_VERSION
 SHOPIFY_STOREFRONT_ACCESS_TOKEN
@@ -62,6 +67,13 @@ OFFER_COOLDOWN_SECONDS
 ## Preview verification
 
 Check `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, `/customer` (legacy reference only), `/profiles/agentflow-ucp.json`, `/api/catalogue/products`, `/api/commerce/evaluate`, and `/api/shopify/ucp/diagnostics`.
+
+Prompt 6 voice surfaces are `/api/salespeople`, `/api/merchant/salespeople/stats`,
+`/api/voice/session`, `/api/voice/stt`, `/api/voice/tts`, `/api/voice/turn`, and
+`/api/voice/status`. Sarvam credentials remain server-only; raw microphone audio is
+processed for transcription and is not persisted by default. The normal test suite
+uses provider mocks. Run the dedicated real-provider suite only with
+`RUN_SARVAM_E2E=1` and an explicitly provisioned server credential.
 
 For Store Bootstrap, use `POST /api/merchant/catalog/bootstrap` with a CSV/XLSX
 to create a persisted review preview, then send `{ "importRunId": "…", "confirm": true }`

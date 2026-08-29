@@ -6,6 +6,7 @@ import { Badge } from "../merchant-ui";
 type ConnectorStatusResponse = {
   connectors: {
     nim: { configured: boolean; model: string; mode: string };
+    sarvam: { configured: boolean; sttModel: string; ttsModel: string; mode: string };
     shopify: { configured: boolean; storeDomain: string; mode: string };
     payments: { configured: boolean; mode: string };
   };
@@ -20,6 +21,7 @@ export default function ConnectorStatus() {
 
   const entries = [
     { name: "NVIDIA NIM", detail: status?.connectors.nim.model || "Policy-aware compiler", configured: status?.connectors.nim.configured, mode: status?.connectors.nim.mode || "Checking" },
+    { name: "Sarvam voice", detail: status?.connectors.sarvam.ttsModel || "Saaras + Bulbul", configured: status?.connectors.sarvam.configured, mode: status?.connectors.sarvam.mode || "Checking" },
     { name: "Shopify", detail: status?.connectors.shopify.storeDomain || "Haven Home Preview", configured: status?.connectors.shopify.configured, mode: status?.connectors.shopify.mode || "Checking" },
     { name: "Payment rail", detail: "Mock test adapter", configured: false, mode: status?.connectors.payments.mode || "Mock test adapter" },
   ];

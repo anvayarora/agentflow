@@ -25,6 +25,12 @@ export async function GET() {
         endpoint: values?.NIM_BASE_URL || "https://integrate.api.nvidia.com/v1",
         mode: values?.NIM_API_KEY ? "live inference" : "deterministic fallback",
       },
+      sarvam: {
+        configured: Boolean(values?.SARVAM_API_KEY),
+        sttModel: values?.SARVAM_STT_MODEL || "saaras:v3",
+        ttsModel: values?.SARVAM_TTS_MODEL || "bulbul:v3",
+        mode: values?.SARVAM_API_KEY ? "live voice" : "text-only",
+      },
       shopify: {
         configured: shopifyUcp.status === "SHOPIFY_UCP_CONNECTED",
         storeDomain: values?.SHOPIFY_STORE_DOMAIN || shopifyPreviewStore.url.replace("https://", ""),

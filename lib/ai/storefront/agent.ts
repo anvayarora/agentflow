@@ -15,6 +15,8 @@ import { appendConversation, getPageContext, getShortlist, savePageContext, upda
 import { projectStorefrontUi, type StorefrontUiSurface } from "./ui";
 import { getEligibleGrowthActions } from "../../growth/engine";
 import { buildComparisonMatrix } from "./comparison";
+import { getSalespersonRepository } from "../../server/repositories/salesperson";
+import { normalizeLanguage, personaInstruction, type SalespersonLanguage, type SalespersonProfile } from "../../voice/salesperson";
 
 export type StorefrontAgentResult = {
   sessionId: string;
@@ -33,6 +35,8 @@ export type StorefrontAgentResult = {
   growthActions: unknown[];
   latencyMs: number;
   timings: { totalMs: number; tools: Record<string, number[]> };
+  salesperson?: SalespersonProfile;
+  language?: SalespersonLanguage;
 };
 
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
@@ -68,17 +72,20 @@ async function savePreferences(context: TrustedRequestContext, sessionId: string
   await getRuntimeStore().put(context, { id: sessionId, kind: runtimeKinds.shopperPreferences, status: "ACTIVE", payload: preferences, createdAt: timestamp, updatedAt: timestamp });
 }
 
-export async function runStorefrontAgent(input: { context: TrustedRequestContext; sessionId: string; message: string; storefrontContext?: Record<string, unknown> }): Promise<StorefrontAgentResult> {
+export async function runStorefrontAgent(input: { context: TrustedRequestContext; sessionId: string; message: string; storefrontContext?: Record<string, unknown>; salespersonProfileId?: string; language?: SalespersonLanguage }): Promise<StorefrontAgentResult> {
   const { context, sessionId, message } = input;
   const turnStartedAt = Date.now();
   const repository = getCommerceRepository();
   const session = await repository.getSession(context, sessionId);
   if (!session) throw new Error("Commerce session was not found.");
+  const salespersonProfiles = await getSalespersonRepository().ensureDefaults(context);
+  const salesperson = input.salespersonProfileId ? await getSalespersonRepository().select(context, input.salespersonProfileId) : session.salespersonProfileId ? await getSalespersonRepository().select(context, session.salespersonProfileId) : salespersonProfiles.find((profile) => profile.isMerchantDefault && profile.isActive) || salespersonProfiles.find((profile) => profile.isActive);
+  const language = normalizeLanguage(input.language || session.preferredLanguage || "en-IN");
   const safePageContext = input.storefrontContext ? await savePageContext(context, sessionId, { pageType: (input.storefrontContext.pageType as "home" | "collection" | "product" | "search" | "cart" | "other" | undefined) || "other", currentProductId: typeof input.storefrontContext.currentProductId === "string" ? input.storefrontContext.currentProductId : typeof input.storefrontContext.hintedProductId === "string" ? input.storefrontContext.hintedProductId : undefined, currentCollection: typeof input.storefrontContext.currentCollection === "string" ? input.storefrontContext.currentCollection : undefined, url: typeof input.storefrontContext.url === "string" ? input.storefrontContext.url : undefined }) : await getPageContext(context, sessionId);
   const preferences = updateShopperPreferences(message, await loadPreferences(context, sessionId));
   await savePreferences(context, sessionId, preferences);
   await appendConversation(context, sessionId, { role: "user", text: message });
-  await repository.recordAudit(context, { eventType: "AGENT_TURN_STARTED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { messageLength: message.length, preferenceFields: Object.keys(preferences).filter((key) => (preferences as Record<string, unknown>)[key] !== undefined).length } });
+  await repository.recordAudit(context, { eventType: "AGENT_TURN_STARTED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { messageLength: message.length, preferenceFields: Object.keys(preferences).filter((key) => (preferences as Record<string, unknown>)[key] !== undefined).length, salespersonProfileId: salesperson?.id || null, salespersonDisplayName: salesperson?.displayName || null, speakerId: salesperson?.speakerId || null, language } });
   await repository.recordAudit(context, { eventType: "SHOPPER_QUERY", entityType: "shopping_session", entityId: sessionId, shoppingSessionId: sessionId, metadata: { messageLength: message.length, pageType: safePageContext.pageType } });
 
   const products: unknown[] = [];
@@ -134,8 +141,8 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
   };
 
   try {
-    const agent = new ToolLoopAgent({ id: "agentflow-storefront", model: getNimModel(), instructions: STOREFRONT_AGENT_INSTRUCTIONS, tools, providerOptions: { nvidiaNim: { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } } }, stopWhen: isStepCount(4), temperature: 1, topP: 0.95, maxOutputTokens: 256 });
-    const result = await agent.generate({ prompt: `Trusted storefront session context: currency=${session.currency}; preferences=${JSON.stringify(preferences)}; pageContext=${JSON.stringify(safePageContext)}.\nCustomer request: ${message}`, timeout: { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 90_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 30_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
+    const agent = new ToolLoopAgent({ id: "agentflow-storefront", model: getNimModel(), instructions: `${STOREFRONT_AGENT_INSTRUCTIONS}\n${salesperson ? personaInstruction(salesperson, language) : "Use a concise customer-facing tone."}`, tools, providerOptions: { nvidiaNim: { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } } }, stopWhen: isStepCount(4), temperature: 1, topP: 0.95, maxOutputTokens: 256 });
+    const result = await agent.generate({ prompt: `Trusted storefront session context: currency=${session.currency}; language=${language}; preferences=${JSON.stringify(preferences)}; pageContext=${JSON.stringify(safePageContext)}.\nCustomer request: ${message}`, timeout: { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 90_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 30_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
     try {
       const eligible = await getEligibleGrowthActions({ context, sessionId });
       growthActions = eligible.actions;
@@ -149,7 +156,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const ui = projectStorefrontUi({ message: text, products, cart: latestCart, offer: latestOffer && typeof latestOffer === "object" ? latestOffer as { offerId?: string; outcome?: string } : null, approval: latestApproval && typeof latestApproval === "object" ? latestApproval as { approvalId?: string } : null, checkout: latestCheckout, shortlistProductIds: shortlist.productIds });
     const latencyMs = Date.now() - turnStartedAt;
     await repository.recordAudit(context, { eventType: "AGENT_TURN_COMPLETED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { modelCalls: result.steps.length, toolSteps, responseLength: text.length, latencyMs, toolTimings } });
-    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b", modelCalls: result.steps.length, toolSteps, ui, shortlist: shortlist.productIds, growthActions, latencyMs, timings: { totalMs: latencyMs, tools: toolTimings } };
+    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b", modelCalls: result.steps.length, toolSteps, ui, shortlist: shortlist.productIds, growthActions, latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
   } catch (error) {
     const configuration = error instanceof NimConfigurationError;
     console.error("[agentflow] storefront agent execution failed", {
@@ -160,6 +167,6 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const shortlist = await getShortlist(context, sessionId).catch(() => ({ productIds: [] }));
     const text = configuration ? "The storefront assistant is not enabled for this environment yet." : safeMessage;
     const latencyMs = Date.now() - turnStartedAt;
-    return { sessionId, message: text, status: configuration ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b", modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings } };
+    return { sessionId, message: text, status: configuration ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b", modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
   }
 }

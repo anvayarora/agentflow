@@ -1,9 +1,10 @@
 import { getDb, isDatabaseConfigured } from "../../db";
-import { customerSegments, customers, organizationMembers, organizations, policies, policyRules, policyVersions, products } from "../../db/schema";
+import { customerSegments, customers, organizationMembers, organizations, policies, policyRules, policyVersions, products, salespersonProfiles } from "../../db/schema";
 import { compileDemoPolicyProposal } from "../policy/compiler";
 import { demoOrganizationId } from "./context";
 import { resetCommerceRepositoryForTests } from "./repositories/commerce";
 import { products as displayProducts } from "../catalogue";
+import { DEFAULT_SALESPERSON_PROFILES } from "./repositories/salesperson";
 
 export async function seedDatabase() {
   if (!isDatabaseConfigured()) throw new Error("DATABASE_URL is required to seed AgentFlow PostgreSQL state.");
@@ -31,6 +32,10 @@ export async function seedDatabase() {
     }
     for (const rule of policy.rules) {
       await tx.insert(policyRules).values({ id: `${policy.id}::${rule.id}`, organizationId, policyVersionId: policy.id, name: rule.name, description: rule.description, priority: rule.priority, hardConstraint: rule.hardConstraint, scope: rule.scope, conditions: rule.conditions, effect: rule.effect }).onConflictDoUpdate({ target: policyRules.id, set: { name: rule.name, description: rule.description, priority: rule.priority, hardConstraint: rule.hardConstraint, scope: rule.scope, conditions: rule.conditions, effect: rule.effect } });
+    }
+    for (const baseProfile of DEFAULT_SALESPERSON_PROFILES) {
+      const profileId = `${baseProfile.id}-${organizationId}`;
+      await tx.insert(salespersonProfiles).values({ id: profileId, organizationId, displayName: baseProfile.displayName, description: baseProfile.description, speakerId: baseProfile.speakerId, languageSupport: [...baseProfile.languageSupport], tonePreset: baseProfile.tonePreset, pacePreset: baseProfile.pacePreset, isActive: baseProfile.isActive ?? true, isMerchantDefault: baseProfile.isMerchantDefault ?? false, avatarKey: baseProfile.avatarKey ?? null }).onConflictDoUpdate({ target: salespersonProfiles.id, set: { displayName: baseProfile.displayName, description: baseProfile.description, speakerId: baseProfile.speakerId, languageSupport: [...baseProfile.languageSupport], tonePreset: baseProfile.tonePreset, pacePreset: baseProfile.pacePreset, isActive: baseProfile.isActive ?? true, isMerchantDefault: baseProfile.isMerchantDefault ?? false, updatedAt: new Date() } });
     }
   });
   resetCommerceRepositoryForTests();

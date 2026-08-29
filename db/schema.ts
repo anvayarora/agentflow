@@ -114,6 +114,25 @@ export const policyRules = pgTable("policy_rules", {
   policyRuleUnique: uniqueIndex("policy_rules_version_rule_idx").on(table.policyVersionId, table.id),
 }));
 
+/** Merchant-configured presentation personas. They never carry policy or pricing authority. */
+export const salespersonProfiles = pgTable("salesperson_profiles", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  displayName: text("display_name").notNull(),
+  description: text("description").notNull(),
+  speakerId: text("speaker_id").notNull(),
+  languageSupport: text("language_support").array().notNull(),
+  tonePreset: text("tone_preset").notNull(),
+  pacePreset: text("pace_preset").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  isMerchantDefault: boolean("is_merchant_default").notNull().default(false),
+  avatarKey: text("avatar_key"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => ({
+  organizationDisplayNameUnique: uniqueIndex("salesperson_profiles_org_display_name_idx").on(table.organizationId, table.displayName),
+}));
+
 export const shoppingSessions = pgTable("shopping_sessions", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => organizations.id),
@@ -124,6 +143,12 @@ export const shoppingSessions = pgTable("shopping_sessions", {
   shopifyShopDomain: text("shopify_shop_domain"),
   shopifyCustomerId: text("shopify_customer_id"),
   shopifyCartId: text("shopify_cart_id"),
+  salespersonProfileId: text("salesperson_profile_id").references(() => salespersonProfiles.id),
+  preferredLanguage: text("preferred_language"),
+  detectedLanguage: text("detected_language"),
+  preferredScript: text("preferred_script"),
+  voiceEnabled: boolean("voice_enabled").notNull().default(false),
+  voicePace: text("voice_pace"),
   canonicalLineItems: jsonb("canonical_line_items").$type<unknown[]>().notNull().default([]),
   cartHash: text("cart_hash"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),

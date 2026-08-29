@@ -21,6 +21,12 @@ export type SessionRecord = TrustedCommerceSession & {
   canonicalLineItems?: unknown[];
   cartHash?: string | null;
   lastSyncedAt?: string | null;
+  salespersonProfileId?: string | null;
+  preferredLanguage?: string | null;
+  detectedLanguage?: string | null;
+  preferredScript?: string | null;
+  voiceEnabled?: boolean;
+  voicePace?: string | null;
 };
 
 export type ShopifySessionInput = {
@@ -36,6 +42,15 @@ export type SessionCartUpdate = {
   shopifyCartId?: string | null;
   canonicalLineItems: unknown[];
   cartHash?: string | null;
+};
+
+export type SessionVoiceUpdate = {
+  salespersonProfileId?: string | null;
+  preferredLanguage?: string | null;
+  detectedLanguage?: string | null;
+  preferredScript?: string | null;
+  voiceEnabled?: boolean;
+  voicePace?: string | null;
 };
 
 export type CatalogueProductInput = {
@@ -80,6 +95,7 @@ export type CommerceRepository = {
   createShopifySession(context: TrustedRequestContext, input: ShopifySessionInput): Promise<SessionRecord>;
   getSession(context: TrustedRequestContext, sessionId: string): Promise<SessionRecord | null>;
   updateSessionCart(context: TrustedRequestContext, sessionId: string, update: SessionCartUpdate): Promise<SessionRecord | null>;
+  updateSessionVoice(context: TrustedRequestContext, sessionId: string, update: SessionVoiceUpdate): Promise<SessionRecord | null>;
   upsertCatalogueProduct(context: TrustedRequestContext, input: CatalogueProductInput): Promise<CanonicalProduct>;
   updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; supplier?: string | null; privateTags?: string[] }): Promise<CanonicalProduct | null>;
   getCurrentPolicy(context: TrustedRequestContext): Promise<PolicyVersionIR | null>;
@@ -184,7 +200,7 @@ class MemoryCommerceRepository implements CommerceRepository {
   async createSession(context: TrustedRequestContext, customerId = "customer-haven-repeat") {
     const customer = await this.getCustomer(context, customerId);
     if (!customer) throw new Error("Customer is not available in this organization.");
-    const session: SessionRecord = { id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: "INR", status: "OPEN", cartTotalPaise: 0 };
+    const session: SessionRecord = { id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: "INR", status: "OPEN", cartTotalPaise: 0, voiceEnabled: false };
     this.state(context).sessions.set(session.id, session);
     return session;
   }
@@ -196,6 +212,7 @@ class MemoryCommerceRepository implements CommerceRepository {
     const session: SessionRecord = {
       id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: input.currency || input.cart?.currency || "USD", status: "OPEN", cartTotalPaise: cartTotal,
       shopifyShopDomain: input.shopDomain, shopifyCustomerId: input.shopifyCustomerId || null, shopifyCartId: input.cart?.id || null, canonicalLineItems: input.cart?.lineItems || [], cartHash: input.cart ? JSON.stringify(input.cart.lineItems) : null, lastSyncedAt: now(),
+      voiceEnabled: false,
     };
     this.state(context).sessions.set(session.id, session);
     return session;
@@ -205,6 +222,13 @@ class MemoryCommerceRepository implements CommerceRepository {
     const current = await this.getSession(context, sessionId);
     if (!current) return null;
     const next = { ...current, ...(update.currency ? { currency: update.currency } : {}), cartTotalPaise: update.cartTotalPaise, shopifyCartId: update.shopifyCartId === undefined ? current.shopifyCartId : update.shopifyCartId, canonicalLineItems: update.canonicalLineItems, cartHash: update.cartHash === undefined ? current.cartHash : update.cartHash, lastSyncedAt: now() };
+    this.state(context).sessions.set(sessionId, next);
+    return next;
+  }
+  async updateSessionVoice(context: TrustedRequestContext, sessionId: string, update: SessionVoiceUpdate) {
+    const current = await this.getSession(context, sessionId);
+    if (!current) return null;
+    const next = { ...current, ...update };
     this.state(context).sessions.set(sessionId, next);
     return next;
   }
@@ -296,10 +320,10 @@ function customerFromRow(row: typeof customers.$inferSelect): CanonicalCustomer 
   return { ...row, attributes: row.attributes || {} };
 }
 
-function sessionFromRow(row: Pick<typeof shoppingSessions.$inferSelect, "id" | "organizationId" | "customerId" | "currency" | "status" | "cart" | "shopifyShopDomain" | "shopifyCustomerId" | "shopifyCartId" | "canonicalLineItems" | "cartHash" | "lastSyncedAt">): SessionRecord {
+function sessionFromRow(row: Pick<typeof shoppingSessions.$inferSelect, "id" | "organizationId" | "customerId" | "currency" | "status" | "cart" | "shopifyShopDomain" | "shopifyCustomerId" | "shopifyCartId" | "salespersonProfileId" | "preferredLanguage" | "detectedLanguage" | "preferredScript" | "voiceEnabled" | "voicePace" | "canonicalLineItems" | "cartHash" | "lastSyncedAt">): SessionRecord {
   const cart = typeof row.cart === "object" && row.cart ? row.cart : {};
   const total = typeof cart.totalPaise === "number" ? cart.totalPaise : 0;
-  return { id: row.id, organizationId: row.organizationId, customerId: row.customerId, currency: row.currency, status: row.status, cartTotalPaise: total, shopifyShopDomain: row.shopifyShopDomain, shopifyCustomerId: row.shopifyCustomerId, shopifyCartId: row.shopifyCartId, canonicalLineItems: row.canonicalLineItems || [], cartHash: row.cartHash, lastSyncedAt: row.lastSyncedAt?.toISOString() || null };
+  return { id: row.id, organizationId: row.organizationId, customerId: row.customerId, currency: row.currency, status: row.status, cartTotalPaise: total, shopifyShopDomain: row.shopifyShopDomain, shopifyCustomerId: row.shopifyCustomerId, shopifyCartId: row.shopifyCartId, salespersonProfileId: row.salespersonProfileId, preferredLanguage: row.preferredLanguage, detectedLanguage: row.detectedLanguage, preferredScript: row.preferredScript, voiceEnabled: row.voiceEnabled, voicePace: row.voicePace, canonicalLineItems: row.canonicalLineItems || [], cartHash: row.cartHash, lastSyncedAt: row.lastSyncedAt?.toISOString() || null };
 }
 
 class PostgresCommerceRepository implements CommerceRepository {
@@ -319,7 +343,7 @@ class PostgresCommerceRepository implements CommerceRepository {
   async createSession(context: TrustedRequestContext, customerId = "customer-haven-repeat") {
     const customer = await this.getCustomer(context, customerId);
     if (!customer) throw new Error("Customer is not available in this organization.");
-    const session = { id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: "INR", status: "OPEN", cart: { totalPaise: 0 } };
+    const session = { id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: "INR", status: "OPEN", cart: { totalPaise: 0 }, salespersonProfileId: null, preferredLanguage: null, detectedLanguage: null, preferredScript: null, voiceEnabled: false, voicePace: null };
     await getDb().insert(shoppingSessions).values(session);
     return { id: session.id, organizationId: session.organizationId, customerId: session.customerId, currency: session.currency, status: session.status, cartTotalPaise: 0 };
   }
@@ -337,7 +361,7 @@ class PostgresCommerceRepository implements CommerceRepository {
     if (!customer) throw new Error("Anonymous Shopify customer is not available in this organization.");
     const cartTotalMinorUnits = input.cart?.totals.find((total) => total.type === "total")?.amount || 0;
     const cartTotal = input.currency === "INR" || input.cart?.currency === "INR" ? cartTotalMinorUnits : 0;
-    const session = { id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: input.currency || input.cart?.currency || "USD", status: "OPEN", cart: { totalPaise: cartTotal, totalMinorUnits: cartTotalMinorUnits, source: "shopify_ucp" }, shopifyShopDomain: input.shopDomain, shopifyCustomerId: input.shopifyCustomerId || null, shopifyCartId: input.cart?.id || null, canonicalLineItems: input.cart?.lineItems || [], cartHash: input.cart ? JSON.stringify(input.cart.lineItems) : null, lastSyncedAt: new Date() };
+    const session = { id: id("session"), organizationId: context.organizationId, customerId: customer.id, currency: input.currency || input.cart?.currency || "USD", status: "OPEN", cart: { totalPaise: cartTotal, totalMinorUnits: cartTotalMinorUnits, source: "shopify_ucp" }, shopifyShopDomain: input.shopDomain, shopifyCustomerId: input.shopifyCustomerId || null, shopifyCartId: input.cart?.id || null, salespersonProfileId: null, preferredLanguage: null, detectedLanguage: null, preferredScript: null, voiceEnabled: false, voicePace: null, canonicalLineItems: input.cart?.lineItems || [], cartHash: input.cart ? JSON.stringify(input.cart.lineItems) : null, lastSyncedAt: new Date() };
     await getDb().insert(shoppingSessions).values(session);
     return sessionFromRow(session);
   }
@@ -351,6 +375,12 @@ class PostgresCommerceRepository implements CommerceRepository {
     const current = await this.getSession(context, sessionId);
     if (!current) return null;
     await getDb().update(shoppingSessions).set({ ...(update.currency ? { currency: update.currency } : {}), cart: { totalPaise: update.cartTotalPaise }, shopifyCartId: update.shopifyCartId === undefined ? current.shopifyCartId : update.shopifyCartId, canonicalLineItems: update.canonicalLineItems, cartHash: update.cartHash === undefined ? current.cartHash : update.cartHash, lastSyncedAt: new Date(), updatedAt: new Date() }).where(and(eq(shoppingSessions.organizationId, context.organizationId), eq(shoppingSessions.id, sessionId)));
+    return this.getSession(context, sessionId);
+  }
+  async updateSessionVoice(context: TrustedRequestContext, sessionId: string, update: SessionVoiceUpdate) {
+    const current = await this.getSession(context, sessionId);
+    if (!current) return null;
+    await getDb().update(shoppingSessions).set({ salespersonProfileId: update.salespersonProfileId === undefined ? current.salespersonProfileId || null : update.salespersonProfileId, preferredLanguage: update.preferredLanguage === undefined ? current.preferredLanguage || null : update.preferredLanguage, detectedLanguage: update.detectedLanguage === undefined ? current.detectedLanguage || null : update.detectedLanguage, preferredScript: update.preferredScript === undefined ? current.preferredScript || null : update.preferredScript, voiceEnabled: update.voiceEnabled === undefined ? Boolean(current.voiceEnabled) : update.voiceEnabled, voicePace: update.voicePace === undefined ? current.voicePace || null : update.voicePace, updatedAt: new Date() }).where(and(eq(shoppingSessions.organizationId, context.organizationId), eq(shoppingSessions.id, sessionId)));
     return this.getSession(context, sessionId);
   }
   async upsertCatalogueProduct(context: TrustedRequestContext, input: CatalogueProductInput) {

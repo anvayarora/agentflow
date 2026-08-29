@@ -70,6 +70,11 @@ const run = async () => {
       connectedStore: await page.getByText("Haven Home Preview").count(),
       productCards: await page.locator(".customer-product").count(),
       offerTool: await page.getByText("Test your own offer").count(),
+      voiceSalesperson: await page.locator(".voice-salesperson-panel").count(),
+      salespersonProfiles: await page.locator(".voice-profile").count(),
+      languageSelector: await page.getByLabel("Language").count(),
+      microphoneControl: await page.getByRole("button", { name: "Start microphone" }).count(),
+      textTurn: await page.getByLabel("Type to your AI salesperson").count(),
     };
     await page.getByLabel("Requested discount").fill("3");
     await page.getByLabel("Quantity").fill("1");
