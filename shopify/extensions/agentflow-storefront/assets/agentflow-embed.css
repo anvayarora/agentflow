@@ -18,3 +18,16 @@
 .agentflow-product-actions { display: flex; gap: 4px; padding: 0 7px 8px; }.agentflow-product-actions button, .agentflow-action { border: 1px solid #d9deea; border-radius: 7px; color: #36415e; background: #fff; cursor: pointer; font-size: 10px; padding: 5px 7px; }.agentflow-product-actions button:hover, .agentflow-action:hover { border-color: #5065d8; color: #5065d8; }.agentflow-action { margin-top: 2px; padding: 7px 10px; }
 .agentflow-cart-note { padding: 8px 10px; border-radius: 9px; color: #1f6b50; background: #eaf7f0; font-size: 11px; }
 @media (max-width: 520px) { .agentflow-panel { width: min(420px, calc(100vw - 20px)); max-height: min(78vh, 640px); border-radius: 18px 18px 12px 12px; }.agentflow-messages { max-height: 52vh; }.agentflow-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.agentflow-voice-toolbar { display: grid; gap: 10px; padding: 13px 16px 12px; border-bottom: 1px solid #edf0f6; background: #fff; }
+.agentflow-voice-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: #293044; font-size: 12px; font-weight: 700; }
+.agentflow-voice-heading small { color: #8992a9; font-size: 10px; font-weight: 500; }
+.agentflow-voice-selects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.agentflow-voice-selects label { display: grid; gap: 4px; color: #68718a; font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.agentflow-voice-selects select { width: 100%; min-width: 0; padding: 7px 8px; border: 1px solid #e0e5ef; border-radius: 8px; color: #36415e; background: #fff; font-size: 11px; text-transform: none; letter-spacing: 0; }
+.agentflow-voice-actions { display: flex; align-items: center; gap: 8px; }
+.agentflow-voice-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #dfe4ef; border-radius: 999px; color: #36415e; background: #fff; cursor: pointer; font-size: 10px; font-weight: 700; }
+.agentflow-voice-toggle:hover, .agentflow-voice-toggle.is-active { border-color: #5065d8; color: #fff; background: #5065d8; }
+.agentflow-mic-dot { color: #c56b55; font-size: 9px; }.agentflow-voice-toggle.is-active .agentflow-mic-dot { color: #d8f16f; }
+.agentflow-voice-status { min-width: 0; overflow: hidden; color: #8a92a7; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.agentflow-form .agentflow-mic { width: 36px; border: 1px solid #dfe4ef; border-radius: 10px; color: #5065d8; background: #fff; cursor: pointer; font-size: 14px; }.agentflow-form .agentflow-mic:hover, .agentflow-form .agentflow-mic.is-recording { border-color: #c56b55; color: #fff; background: #c56b55; }

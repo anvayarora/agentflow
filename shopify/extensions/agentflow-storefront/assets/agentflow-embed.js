@@ -7,11 +7,19 @@
   var sessionKey = "agentflow.shopify.session";
   var sessionId = null;
   var productsById = {};
+  var voiceProfiles = [];
+  var voiceSession = null;
+  var voiceMode = false;
+  var recorder = null;
+  var recorderStream = null;
+  var recorderTimer = null;
+  var speechRecognition = null;
+  var voiceControlsLoaded = false;
   try { sessionId = window.sessionStorage.getItem(sessionKey); } catch { /* storage may be unavailable */ }
 
   root.innerHTML = [
     '<button class="agentflow-launcher" type="button" aria-expanded="false" aria-controls="agentflow-panel"><span class="agentflow-launcher-mark">✦</span><span>Shop with AgentFlow</span></button>',
-    '<section class="agentflow-panel" id="agentflow-panel" hidden aria-label="AgentFlow shopping assistant"><header class="agentflow-panel-header"><div><strong>Haven Home</strong><span>Your personal product guide</span></div><button class="agentflow-close" type="button" aria-label="Close assistant">×</button></header><div class="agentflow-messages" aria-live="polite"><div class="agentflow-message agentflow-message-assistant">Tell me what you are looking for and I’ll find the right pieces.</div></div><div class="agentflow-connection" hidden>Connected to Haven Home</div><form class="agentflow-form"><label class="agentflow-sr-only" for="agentflow-input">Message</label><input id="agentflow-input" maxlength="2000" placeholder="Ask for a product, size, or finish…" autocomplete="off"/><button type="submit" aria-label="Send message">↑</button></form></section>'
+    '<section class="agentflow-panel" id="agentflow-panel" hidden aria-label="AgentFlow shopping assistant"><header class="agentflow-panel-header"><div><strong>Haven Home</strong><span>Your personal product guide</span></div><button class="agentflow-close" type="button" aria-label="Close assistant">×</button></header><div class="agentflow-voice-toolbar"><div class="agentflow-voice-heading"><span>AI salesperson</span><small>Choose a guide and talk naturally</small></div><div class="agentflow-voice-selects"><label>Guide<select id="agentflow-salesperson" aria-label="Choose AI salesperson"><option value="">Loading guides…</option></select></label><label>Language<select id="agentflow-language" aria-label="Choose language"><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="hinglish">Hinglish</option></select></label></div><div class="agentflow-voice-actions"><button class="agentflow-voice-toggle" type="button" aria-pressed="false"><span class="agentflow-mic-dot">●</span><span>Start voice</span></button><span class="agentflow-voice-status" role="status">Text or voice, your choice</span></div></div><div class="agentflow-messages" aria-live="polite"><div class="agentflow-message agentflow-message-assistant">Tell me what you are looking for and I’ll find the right pieces. You can also ask me to scroll, open your cart, or take you home.</div></div><div class="agentflow-connection" hidden>Connected to Haven Home</div><form class="agentflow-form"><label class="agentflow-sr-only" for="agentflow-input">Message</label><input id="agentflow-input" maxlength="2000" placeholder="Ask for a product, size, or finish…" autocomplete="off"/><button class="agentflow-mic" type="button" aria-label="Record a voice request">🎙</button><button type="submit" aria-label="Send message">↑</button></form></section>'
   ].join("");
 
   var launcher = root.querySelector(".agentflow-launcher");
@@ -21,23 +29,35 @@
   var input = root.querySelector("#agentflow-input");
   var messages = root.querySelector(".agentflow-messages");
   var connection = root.querySelector(".agentflow-connection");
+  var salespersonSelect = root.querySelector("#agentflow-salesperson");
+  var languageSelect = root.querySelector("#agentflow-language");
+  var voiceToggle = root.querySelector(".agentflow-voice-toggle");
+  var voiceStatus = root.querySelector(".agentflow-voice-status");
+  var micButton = root.querySelector(".agentflow-mic");
 
-  function setOpen(open) { launcher.setAttribute("aria-expanded", String(open)); panel.hidden = !open; if (open) input.focus(); }
+  function setOpen(open) { launcher.setAttribute("aria-expanded", String(open)); panel.hidden = !open; if (open) { input.focus(); loadVoiceControls(); } }
   function addMessage(text, kind) { var item = document.createElement("div"); item.className = "agentflow-message agentflow-message-" + kind; item.textContent = text; messages.appendChild(item); messages.scrollTop = messages.scrollHeight; }
+  function setVoiceStatus(text) { voiceStatus.textContent = text; }
   function pageContext() {
     var rawPageType = root.dataset.agentflowPageType || "other";
     var pageType = { index: "home", home: "home", collection: "collection", product: "product", search: "search", cart: "cart", other: "other" }[rawPageType] || "other";
     return { pageType: pageType, currentProductId: root.dataset.agentflowProductId || undefined, currentCollection: root.dataset.agentflowCollection || undefined, url: window.location.href };
   }
-  function endpoint(name) { return proxyPath.replace(/\/chat$/, "/" + name); }
+  function endpoint(name) { return proxyPath.replace(/\/chat(?:\?.*)?$/, "/" + name); }
   function addAction(label, handler) { var action = document.createElement("button"); action.type = "button"; action.className = "agentflow-action"; action.textContent = label; action.addEventListener("click", handler); messages.appendChild(action); messages.scrollTop = messages.scrollHeight; return action; }
   function productTitle(product) { return product && (product.title || product.name) || "Product"; }
   function productPrice(product) { var value = product && (product.priceMinorUnits !== undefined ? product.priceMinorUnits : product.listPricePaise); if (typeof value !== "number") return ""; return "₹" + (value / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 }); }
   function productImage(product) { return product && (product.imageUrl || (Array.isArray(product.media) ? product.media[0] : undefined)); }
   function productUrl(product) { if (!product) return null; if (product.productUrl) return product.productUrl; if (product.handle) return "/products/" + encodeURIComponent(product.handle); return null; }
 
+  async function fetchPayload(url, options) {
+    var response = await fetch(url, options);
+    var payload = await response.json().catch(function () { return {}; });
+    if (!response.ok) throw new Error(payload.error || "The shopping assistant is unavailable.");
+    return payload;
+  }
   function invokeAction(action) {
-    return fetch(endpoint("ui-action"), { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ sessionId: sessionId || undefined, action: action }) }).then(function (response) { return response.json().then(function (payload) { if (!response.ok) throw new Error(payload.error || "That action could not be completed."); return payload; }); });
+    return fetchPayload(endpoint("ui-action"), { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ sessionId: sessionId || undefined, action: action }) });
   }
   function renderProductCard(product) {
     var card = document.createElement("article"); card.className = "agentflow-product-card";
@@ -54,24 +74,117 @@
     var ui = payload.ui || {}; var productIds = ui.productIds || (payload.products || []).map(function (product) { return product.id; });
     if (["PRODUCT_GRID", "PRODUCT_SPOTLIGHT", "SHORTLIST", "COMPARISON"].indexOf(ui.type) >= 0) {
       var grid = document.createElement("div"); grid.className = "agentflow-product-grid"; productIds.forEach(function (id) { if (productsById[id]) grid.appendChild(renderProductCard(productsById[id])); }); messages.appendChild(grid);
-      if (ui.type === "COMPARISON" && productIds.length > 1) addAction("Compare these options", function () { sendMessage("Compare these options"); });
+      if (ui.type === "COMPARISON" && productIds.length > 1) addAction("Compare these options", function () { sendMessage("Compare these options", "text"); });
     }
     if (payload.cart && payload.cart.lines) { var cartNote = document.createElement("div"); cartNote.className = "agentflow-cart-note"; cartNote.textContent = "Cart updated · " + payload.cart.lines.reduce(function (sum, line) { return sum + line.quantity; }, 0) + " item(s)"; messages.appendChild(cartNote); }
-    if (Array.isArray(payload.growthActions) && payload.growthActions.length) { payload.growthActions.slice(0, 2).forEach(function (growth) { var product = growth.product; if (product && product.id) productsById[product.id] = product; var label = growth.type === "BUNDLE" ? "Available as a bundle" : "A considered add-on for your order"; addAction(label, function () { sendMessage("Tell me about the bundle option"); }); }); }
-    if (payload.offer && payload.offer.offerId) addAction(payload.offer.outcome === "ALLOW" ? "Review private offer" : "See offer status", function () { sendMessage("Show me the offer"); });
+    if (Array.isArray(payload.growthActions) && payload.growthActions.length) { payload.growthActions.slice(0, 2).forEach(function (growth) { var product = growth.product; if (product && product.id) productsById[product.id] = product; var label = growth.type === "BUNDLE" ? "Available as a bundle" : "A considered add-on for your order"; addAction(label, function () { sendMessage("Tell me about the bundle option", "text"); }); }); }
+    if (payload.offer && payload.offer.offerId) addAction(payload.offer.outcome === "ALLOW" ? "Review private offer" : "See offer status", function () { sendMessage("Show me the offer", "text"); });
     messages.scrollTop = messages.scrollHeight;
   }
-  async function sendMessage(text) {
-    if (!text) return;
-    addMessage(text, "customer"); input.value = ""; var submit = form.querySelector("button"); submit.disabled = true; connection.textContent = "Connected · finding a fit…"; connection.hidden = root.dataset.agentflowDevStatus !== "true";
+
+  async function loadVoiceControls() {
+    if (voiceControlsLoaded) return;
+    voiceControlsLoaded = true;
     try {
-      var response = await fetch(proxyPath, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ sessionId: sessionId || undefined, message: text, storefrontContext: pageContext() }) });
-      var payload = await response.json(); if (!response.ok) throw new Error(payload.error || "The shopping assistant is unavailable.");
+      var payload = await fetchPayload(endpoint("salespeople"), { headers: { Accept: "application/json" } });
+      voiceProfiles = payload.salespeople || [];
+      salespersonSelect.innerHTML = "";
+      voiceProfiles.forEach(function (profile) { var option = document.createElement("option"); option.value = profile.id; option.textContent = profile.displayName + " · " + (profile.description || "product guide"); salespersonSelect.appendChild(option); });
+      if (!voiceProfiles.length) throw new Error("No AI salesperson is available for this store.");
+      var preferred = voiceProfiles.find(function (profile) { return profile.isMerchantDefault; }) || voiceProfiles[0];
+      salespersonSelect.value = preferred.id;
+      await ensureVoiceSession(false);
+      setVoiceStatus("Ready with " + preferred.displayName);
+    } catch (error) {
+      salespersonSelect.innerHTML = "<option value=\"\">Unavailable</option>";
+      setVoiceStatus(error.message || "Voice options are temporarily unavailable.");
+    }
+  }
+  async function ensureVoiceSession(selectorOpened) {
+    var payload = await fetchPayload(endpoint("voice/session"), { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ sessionId: sessionId || undefined, salespersonProfileId: salespersonSelect.value || undefined, language: languageSelect.value, voiceEnabled: true, selectorOpened: Boolean(selectorOpened) }) });
+    voiceSession = payload;
+    sessionId = payload.sessionId || sessionId;
+    if (sessionId) try { window.sessionStorage.setItem(sessionKey, sessionId); } catch { /* storage may be unavailable */ }
+    if (payload.salesperson && salespersonSelect.value !== payload.salesperson.id) salespersonSelect.value = payload.salesperson.id;
+    return payload;
+  }
+  function playAudio(audioBase64, mimeType) { if (!audioBase64) return; try { var audio = new Audio("data:" + (mimeType || "audio/wav") + ";base64," + audioBase64); audio.play().catch(function () { /* autoplay may be blocked until the next gesture */ }); } catch { /* audio is an enhancement; text remains available */ } }
+  async function speakText(text) {
+    if (!text || !voiceSession) return;
+    try { var payload = await fetchPayload(endpoint("voice/tts"), { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ sessionId: sessionId || undefined, salespersonProfileId: salespersonSelect.value || undefined, language: languageSelect.value, text: text }) }); playAudio(payload.audioBase64, payload.mimeType); } catch (error) { setVoiceStatus(error.message || "Voice output is temporarily unavailable."); }
+  }
+  function localVoiceCommand(text) {
+    var value = text.toLowerCase().replace(/[?!.,]/g, "").trim();
+    if (/\b(scroll|move)\s+(down|lower)\b|\bshow me more\b/.test(value)) { window.scrollBy(0, Math.max(420, Math.floor(window.innerHeight * 0.72))); return "Scrolling down."; }
+    if (/\b(scroll|move)\s+up\b/.test(value)) { window.scrollBy(0, -Math.max(420, Math.floor(window.innerHeight * 0.72))); return "Scrolling up."; }
+    if (/\b(scroll|go)\s+to\s+(the\s+)?top\b/.test(value)) { window.scrollTo(0, 0); return "Back at the top."; }
+    if (/\b(scroll|go)\s+to\s+(the\s+)?bottom\b/.test(value)) { window.scrollTo(0, document.body.scrollHeight); return "At the bottom of the page."; }
+    if (/\b(open|show|go to)\s+(the\s+)?cart\b/.test(value)) { window.location.href = "/cart"; return "Opening your cart."; }
+    if (/\b(go|take me)\s+(back|home)\b|\bopen\s+(the\s+)?home(page)?\b/.test(value)) { if (/back/.test(value)) window.history.back(); else window.location.href = "/"; return "Taking you there."; }
+    var productKeys = Object.keys(productsById);
+    if (/\b(open|show|view)\s+(the\s+)?(first|1st)\s+product\b/.test(value) && productKeys[0]) { var firstUrl = productUrl(productsById[productKeys[0]]); if (firstUrl) window.location.href = firstUrl; return "Opening the first result."; }
+    return null;
+  }
+  async function handleVoiceText(text) {
+    if (!text) return;
+    addMessage(text, "customer");
+    var localReply = localVoiceCommand(text);
+    if (localReply) { addMessage(localReply, "assistant"); await speakText(localReply); return; }
+    await sendMessage(text, "voice");
+  }
+  async function transcribeRecording(blob) {
+    setVoiceStatus("Understanding you…");
+    var formData = new FormData(); formData.append("file", blob, "voice-request.webm"); if (sessionId) formData.append("sessionId", sessionId); formData.append("languageCode", languageSelect.value === "hinglish" ? "hi-IN" : languageSelect.value);
+    try { var payload = await fetchPayload(endpoint("voice/stt"), { method: "POST", body: formData }); sessionId = payload.sessionId || sessionId; await handleVoiceText((payload.transcript || "").trim()); setVoiceStatus("Listening when you are ready"); } catch (error) { setVoiceStatus(error.message || "Voice input is temporarily unavailable."); addMessage(error.message || "Voice input is temporarily unavailable.", "assistant"); }
+  }
+  async function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { setVoiceStatus("This browser does not support microphone input. You can still type."); return; }
+    try {
+      await ensureVoiceSession(false);
+      recorderStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      var mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+      var chunks = []; recorder = new MediaRecorder(recorderStream, { mimeType: mimeType });
+      recorder.ondataavailable = function (event) { if (event.data && event.data.size) chunks.push(event.data); };
+      recorder.onstop = function () { var blob = new Blob(chunks, { type: mimeType }); if (recorderStream) recorderStream.getTracks().forEach(function (track) { track.stop(); }); recorder = null; recorderStream = null; if (recorderTimer) window.clearTimeout(recorderTimer); recorderTimer = null; micButton.classList.remove("is-recording"); transcribeRecording(blob); };
+      recorder.start(); micButton.classList.add("is-recording"); setVoiceStatus("Listening… tap the mic when you are done"); recorderTimer = window.setTimeout(stopRecording, 9000);
+    } catch (error) { setVoiceStatus(error.message || "Microphone permission is needed for voice input."); }
+  }
+  function stopRecording() { if (recorder && recorder.state !== "inactive") recorder.stop(); }
+  function recognitionConstructor() { return window.SpeechRecognition || window.webkitSpeechRecognition; }
+  function startSpeechRecognition() {
+    var Constructor = recognitionConstructor(); if (!Constructor) { setVoiceStatus("Voice mode is ready. Tap the mic for each request."); return; }
+    speechRecognition = new Constructor(); speechRecognition.lang = languageSelect.value === "hi-IN" ? "hi-IN" : "en-IN"; speechRecognition.continuous = true; speechRecognition.interimResults = false;
+    speechRecognition.onresult = function (event) { for (var index = event.resultIndex; index < event.results.length; index += 1) if (event.results[index].isFinal) handleVoiceText(event.results[index][0].transcript.trim()); };
+    speechRecognition.onerror = function () { setVoiceStatus("Voice mode paused. Tap Start voice to try again."); };
+    speechRecognition.onend = function () { if (voiceMode && speechRecognition) try { speechRecognition.start(); } catch { /* browser is already restarting */ } };
+    try { speechRecognition.start(); setVoiceStatus("Listening continuously · say scroll, cart, or a product request"); } catch { setVoiceStatus("Voice mode is ready. Tap the mic for each request."); }
+  }
+  function stopSpeechRecognition() { if (speechRecognition) { var current = speechRecognition; speechRecognition = null; try { current.stop(); } catch { /* already stopped */ } } }
+  async function toggleVoiceMode() {
+    if (voiceMode) { voiceMode = false; stopSpeechRecognition(); stopRecording(); voiceToggle.setAttribute("aria-pressed", "false"); voiceToggle.classList.remove("is-active"); voiceToggle.querySelector("span:last-child").textContent = "Start voice"; setVoiceStatus("Voice mode paused"); return; }
+    try { await ensureVoiceSession(true); voiceMode = true; voiceToggle.setAttribute("aria-pressed", "true"); voiceToggle.classList.add("is-active"); voiceToggle.querySelector("span:last-child").textContent = "Stop voice"; startSpeechRecognition(); } catch (error) { setVoiceStatus(error.message || "Voice mode is temporarily unavailable."); }
+  }
+  async function sendMessage(text, inputMode) {
+    if (!text) return;
+    if (inputMode !== "voice") addMessage(text, "customer");
+    input.value = ""; var submit = form.querySelector("button[type=submit]"); submit.disabled = true; connection.textContent = "Connected · finding a fit…"; connection.hidden = root.dataset.agentflowDevStatus !== "true";
+    var useVoice = inputMode === "voice" || voiceMode;
+    try {
+      var requestPath = useVoice ? endpoint("voice/turn") : proxyPath;
+      var body = useVoice ? { sessionId: sessionId || undefined, message: text, salespersonProfileId: salespersonSelect.value || undefined, language: languageSelect.value, voiceEnabled: true, inputMode: inputMode || "text", storefrontContext: pageContext() } : { sessionId: sessionId || undefined, message: text, storefrontContext: pageContext() };
+      var payload = await fetchPayload(requestPath, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body) });
       sessionId = payload.sessionId || sessionId; if (sessionId) try { window.sessionStorage.setItem(sessionKey, sessionId); } catch { /* storage may be unavailable */ }
-      connection.textContent = "Connected to Haven Home"; addMessage(payload.message || "I found a few ways to help.", "assistant"); renderSurface(payload);
-    } catch (error) { connection.textContent = "Temporarily unavailable"; addMessage(error && error.message ? error.message : "The shopping assistant is unavailable.", "assistant"); }
+      connection.textContent = "Connected to Haven Home"; addMessage(payload.message || "I found a few ways to help.", "assistant"); renderSurface(payload); if (payload.voice && payload.voice.audioBase64) playAudio(payload.voice.audioBase64, payload.voice.mimeType); if (payload.voice && payload.voice.error) setVoiceStatus(payload.voice.error); else if (useVoice) setVoiceStatus("Listening when you are ready");
+    } catch (error) { connection.textContent = "Temporarily unavailable"; addMessage(error && error.message ? error.message : "The shopping assistant is unavailable.", "assistant"); if (useVoice) setVoiceStatus(error && error.message ? error.message : "Voice output is temporarily unavailable."); }
     finally { submit.disabled = false; input.focus(); }
   }
-  launcher.addEventListener("click", function () { setOpen(panel.hidden); }); close.addEventListener("click", function () { setOpen(false); }); if (root.dataset.agentflowDevStatus === "true") connection.hidden = false;
-  form.addEventListener("submit", function (event) { event.preventDefault(); sendMessage(input.value.trim()); });
+
+  launcher.addEventListener("click", function () { setOpen(panel.hidden); });
+  close.addEventListener("click", function () { setOpen(false); });
+  voiceToggle.addEventListener("click", toggleVoiceMode);
+  micButton.addEventListener("click", function () { if (recorder) stopRecording(); else startRecording(); });
+  salespersonSelect.addEventListener("change", function () { ensureVoiceSession(true).then(function (view) { setVoiceStatus("Ready with " + view.salesperson.displayName); }).catch(function (error) { setVoiceStatus(error.message || "That salesperson is unavailable."); }); });
+  languageSelect.addEventListener("change", function () { if (voiceMode && speechRecognition) { stopSpeechRecognition(); startSpeechRecognition(); } ensureVoiceSession(false).catch(function (error) { setVoiceStatus(error.message || "That language is unavailable."); }); });
+  if (root.dataset.agentflowDevStatus === "true") connection.hidden = false;
+  form.addEventListener("submit", function (event) { event.preventDefault(); sendMessage(input.value.trim(), "text"); });
 })();
