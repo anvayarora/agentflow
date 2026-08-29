@@ -1,4 +1,5 @@
 import { shopifyPreviewStore } from "../../../../lib/connectors";
+import { NIM_MODEL_ID } from "../../../../lib/ai/providers/nim";
 import { getShopifyUcpClient, ShopifyUcpError } from "../../../../lib/server/shopify/ucp";
 
 const env = () => (typeof process === "undefined" ? undefined : process.env);
@@ -21,9 +22,9 @@ export async function GET() {
     connectors: {
       nim: {
         configured: Boolean(values?.NIM_API_KEY),
-        model: values?.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b",
+        model: values?.NIM_MODEL_ID || NIM_MODEL_ID,
         endpoint: values?.NIM_BASE_URL || "https://integrate.api.nvidia.com/v1",
-        mode: values?.NIM_API_KEY ? "live inference" : "deterministic fallback",
+        mode: values?.NIM_API_KEY ? "live inference" : "provider unavailable",
       },
       sarvam: {
         configured: Boolean(values?.SARVAM_API_KEY),

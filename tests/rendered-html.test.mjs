@@ -36,26 +36,29 @@ test("server-renders the AgentFlow landing surface", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>AgentFlow — Connected commerce, made legible<\/title>/i);
-  assert.match(html, /Make every AI-led sale feel/i);
-  assert.match(html, /Haven Home Preview/i);
-  assert.match(html, /Open merchant workspace/i);
+  assert.match(html, /Turn Your Store Into an/i);
+  assert.match(html, /Haven Home/i);
+  assert.match(html, /Open Store/i);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton|codex-preview/i);
 });
 
 test("the source is the AgentFlow product rather than the starter placeholder", async () => {
-  const [page, layout, workflow, customer, packageJson] = await Promise.all([
+  const [page, layout, workflow, customer, onboardingRoute, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/merchant/workflow/WorkflowForm.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/customer/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/onboarding/compile/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /Open merchant workspace/);
-  assert.match(page, /Shop the customer demo/);
+  assert.match(page, /MarketingApp/);
+  assert.doesNotMatch(page, /Shop the customer demo/);
   assert.match(workflow, /Preview as customer/);
-  assert.match(customer, /Evaluate this offer/);
-  assert.match(customer, /Connected customer demo/);
+  assert.match(customer, /redirect\(shopifyPreviewStore\.url\)/);
+  assert.doesNotMatch(customer, /Evaluate this offer|Connected customer demo/);
+  assert.doesNotMatch(onboardingRoute, /compileDemoPolicyProposal|deterministic compiler used/i);
+  assert.match(onboardingRoute, /NVIDIA Setup Copilot is unavailable/);
   assert.match(layout, /AgentFlow — Connected commerce, made legible/);
   assert.match(packageJson, /"vinext": "1\.0\.0-beta\.2"/);
   assert.match(packageJson, /"nitro":/);

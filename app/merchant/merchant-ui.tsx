@@ -1,17 +1,15 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { shopifyPreviewStore } from "../../lib/connectors";
 
-export type MerchantSection = "overview" | "onboarding" | "workflow" | "growth" | "catalog" | "approvals" | "activity" | "connectors";
+export type MerchantSection = "overview" | "onboarding" | "storefront" | "workflow" | "growth" | "catalog" | "approvals" | "activity" | "connectors";
 
 const links: Array<{ id: MerchantSection; label: string; href: string; icon: string }> = [
   { id: "overview", label: "Overview", href: "/merchant", icon: "⌂" },
-  { id: "onboarding", label: "Onboarding", href: "/merchant/onboarding", icon: "✦" },
-  { id: "workflow", label: "Workflow", href: "/merchant/workflow", icon: "◈" },
+  { id: "onboarding", label: "Setup Copilot", href: "/merchant/onboarding", icon: "✦" },
+  { id: "storefront", label: "Storefront", href: "/merchant/storefront", icon: "▣" },
   { id: "growth", label: "Growth", href: "/merchant/growth", icon: "↗" },
-  { id: "catalog", label: "Catalogue", href: "/merchant/catalog", icon: "▦" },
   { id: "approvals", label: "Approvals", href: "/merchant/approvals", icon: "◌" },
-  { id: "activity", label: "Activity", href: "/merchant/activity", icon: "↗" },
-  { id: "connectors", label: "Connectors", href: "/merchant/connectors", icon: "⌘" },
 ];
 
 export function Brand() {
@@ -30,7 +28,7 @@ export function MerchantShell({ active, children, title, description }: { active
         <div className="workspace-account"><span className="account-avatar">H</span><div><strong>Haven Home</strong><small>Merchant workspace</small></div><span className="account-chevron">⌄</span></div>
         <span className="sidebar-label">Workspace</span>
         <nav className="workspace-nav" aria-label="Merchant workspace navigation">{links.map((link) => <a className={active === link.id ? "workspace-nav-link active" : "workspace-nav-link"} href={link.href} key={link.id}><span>{link.icon}</span>{link.label}{link.id === "approvals" ? <b>1</b> : null}</a>)}</nav>
-        <div className="sidebar-bottom"><div className="sidebar-health"><i /><div><strong>Preview systems</strong><small>Connector checks live</small></div></div><a className="customer-switch" href="/customer"><span>↗</span>View customer demo</a><div className="owner-row"><span className="owner-avatar">AA</span><div><strong>Anvay Arora</strong><small>Owner</small></div></div></div>
+        <div className="sidebar-bottom"><div className="sidebar-health"><i /><div><strong>Preview systems</strong><small>Connector checks live</small></div></div><a className="customer-switch" href={shopifyPreviewStore.url} target="_blank" rel="noreferrer"><span>↗</span>Open live store</a><div className="owner-row"><span className="owner-avatar">AA</span><div><strong>Anvay Arora</strong><small>Owner</small></div></div></div>
       </aside>
       <main className="workspace-main">
         <header className="workspace-topbar"><div><span className="topbar-crumb">Haven Home <i>/</i> {title}</span><h1>{title}</h1><p>{description}</p></div><div className="topbar-actions"><Badge tone="success">Preview environment</Badge><Link className="avatar-button" href="/">AA</Link></div></header>

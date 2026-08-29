@@ -1,4 +1,4 @@
-import { compileDemoPolicyProposal, type CompiledPolicyProposal } from "./policy/compiler";
+import type { CompiledPolicyProposal } from "./policy/compiler";
 import type { PolicyVersionIR } from "./policy/schema";
 import type { PolicyDiscrepancy } from "./policy/validator";
 
@@ -29,11 +29,6 @@ function toBlocks(proposal: CompiledPolicyProposal): PolicyBlock[] {
     status: proposal.discrepancies.length && node.ruleId && proposal.discrepancies.some((item) => item.relatedRuleIds.includes(node.ruleId || "")) ? "needs-review" : "ready",
     ruleId: node.ruleId,
   }));
-}
-
-export function compileDemoOnboarding(prompt: string, options?: { organizationId?: string; policyId?: string; version?: number }): CompiledOnboarding {
-  const proposal = compileDemoPolicyProposal(prompt, options);
-  return { ...proposal, blocks: toBlocks(proposal) };
 }
 
 export function onboardingFromProposal(proposal: CompiledPolicyProposal, draftId?: string): CompiledOnboarding {

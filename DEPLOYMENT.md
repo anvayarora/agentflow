@@ -66,7 +66,7 @@ OFFER_COOLDOWN_SECONDS
 
 ## Preview verification
 
-Check `/`, `/merchant`, `/merchant/onboarding`, `/merchant/workflow`, `/merchant/connectors`, `/customer` (legacy reference only), `/profiles/agentflow-ucp.json`, `/api/catalogue/products`, `/api/commerce/evaluate`, and `/api/shopify/ucp/diagnostics`.
+Check `/`, `/merchant`, `/merchant/onboarding`, `/merchant/storefront`, `/merchant/workflow`, `/merchant/growth`, `/merchant/approvals`, `/profiles/agentflow-ucp.json`, `/api/catalogue/products`, `/api/commerce/evaluate`, and `/api/shopify/ucp/diagnostics`.
 
 Prompt 6 voice surfaces are `/api/salespeople`, `/api/merchant/salespeople/stats`,
 `/api/voice/session`, `/api/voice/stt`, `/api/voice/tts`, `/api/voice/turn`, and
@@ -99,7 +99,7 @@ Keep published policy versions immutable. Roll back an application release throu
 
 - Catalogue: Shopify UCP is the buyer-facing source when verified; the canonical Haven Home seed remains the safe local fallback and private-cost join.
 - Payments: existing server-authorized Test/mock path; no live payment mode.
-- LLM: NVIDIA NIM may propose Policy IR drafts when `NIM_API_KEY` is present; deterministic compiler fallback otherwise.
+- LLM: NVIDIA NIM proposes typed Policy IR drafts when `NIM_API_KEY` is present; Setup Copilot remains unavailable until the provider is configured.
 - Storefront AI: NVIDIA Nemotron Ultra is the reasoning provider; the shopper agent
   has no provider fallback and receives compact public product projections only.
 - Shopify: Haven Home development store target, UCP 2026-04-08 catalog/cart connector, signed App Proxy contract, and Theme App Extension source under `shopify/`.

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { onboardingFromProposal } from "../../../../lib/onboarding";
-import { compileDemoPolicyProposal } from "../../../../lib/policy/compiler";
 import { policyToGraph } from "../../../../lib/policy/graph-projection";
 import { conditionFields, conditionOperators, policyVersionSchema, type PolicyVersionIR } from "../../../../lib/policy/schema";
 import { validatePolicy } from "../../../../lib/policy/validator";
@@ -85,34 +84,49 @@ export async function POST(request: Request) {
     const parsed = bodySchema.safeParse(await request.json());
     if (!parsed.success) return Response.json({ error: "A merchant prompt is required." }, { status: 400 });
     const context = getTrustedRequestContext(request);
-    const fallback = compileDemoPolicyProposal(parsed.data.prompt, { organizationId: context.organizationId, policyId: "policy-haven-home-commerce", version: 1 });
-    let proposal = fallback;
     const apiKey = getEnv("NIM_API_KEY");
-    if (apiKey) {
-      try {
-        const baseUrl = (getEnv("NIM_BASE_URL") || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
-        const model = getEnv("NIM_MODEL_ID") || "nvidia/nemotron-3-ultra-550b-a55b";
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), NIM_REQUEST_TIMEOUT_MS);
-        try {
-          const response = await nimFetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0, max_tokens: 1_600, response_format: { type: "json_object" }, chat_template_kwargs: { enable_thinking: false }, stream: false, messages: [{ role: "system", content: compilerInstruction }, { role: "user", content: `Merchant intent:\n${parsed.data.prompt}\n\nCatalogue context:\n${(parsed.data.catalogueSummary || "Haven Home catalogue with server-owned price, cost, stock, category, brand, and SKU.").slice(0, 2_000)}` }] }), signal: controller.signal });
-          if (!response.ok) throw new Error(`NIM returned ${response.status}`);
-          const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-          const content = payload.choices?.[0]?.message?.content;
-          const nim = content ? nimPolicy(extractJson(content), context.organizationId, parsed.data.prompt) : null;
-          if (!nim) throw new Error("NIM proposal did not match the strict Policy IR schema.");
-          const validation = validatePolicy(nim);
-          proposal = { ...fallback, source: "nim", model, policy: nim, discrepancies: validation.discrepancies, valid: validation.valid, summary: validation.valid ? fallback.summary : "NIM proposal requires merchant review before publication." };
-        } finally {
-          clearTimeout(timeout);
-        }
-      } catch (error) {
-        console.warn("NIM policy proposal unavailable", error instanceof Error ? error.message : "unknown error");
-      }
+    if (!apiKey) return Response.json({ error: "NVIDIA Setup Copilot is not configured. Add NIM_API_KEY server-side before compiling a policy." }, { status: 503 });
+
+    const baseUrl = (getEnv("NIM_BASE_URL") || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
+    const model = getEnv("NIM_MODEL_ID") || "nvidia/nemotron-3.5-lightning-30b-a3b";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), NIM_REQUEST_TIMEOUT_MS);
+    let nim: PolicyVersionIR | null = null;
+    try {
+      const response = await nimFetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ model, temperature: 0, max_tokens: 1_600, response_format: { type: "json_object" }, chat_template_kwargs: { enable_thinking: false }, stream: false, messages: [{ role: "system", content: compilerInstruction }, { role: "user", content: `Merchant intent:\n${parsed.data.prompt}\n\nCatalogue context:\n${(parsed.data.catalogueSummary || "Haven Home catalogue with server-owned price, cost, stock, category, brand, and SKU.").slice(0, 2_000)}` }] }), signal: controller.signal });
+      if (!response.ok) throw new Error(`NIM returned ${response.status}`);
+      const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const content = payload.choices?.[0]?.message?.content;
+      nim = content ? nimPolicy(extractJson(content), context.organizationId, parsed.data.prompt) : null;
+      if (!nim) throw new Error("NIM proposal did not match the strict Policy IR schema.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "provider unavailable";
+      return Response.json({ error: `NVIDIA Setup Copilot is unavailable: ${detail}` }, { status: 503 });
+    } finally {
+      clearTimeout(timeout);
     }
+
+    const validation = validatePolicy(nim);
+    const proposal = {
+      source: "nim" as const,
+      model,
+      workflowName: "Haven Home · Everyday commerce",
+      summary: validation.valid ? "Merchant intent compiled into a validated deterministic policy draft." : "NIM proposal requires merchant review before publication.",
+      policy: nim,
+      graph: policyToGraph(nim),
+      discrepancies: validation.discrepancies,
+      assumptions: [
+        "Catalogue data, customer history, and policy versions are loaded by the server.",
+        "Connector capability never grants commercial authority.",
+        "Missing cost data fails safe to merchant review when a margin floor applies.",
+        "NIM may propose this IR, but a merchant must validate and publish it explicitly.",
+      ],
+      clarificationQuestions: [],
+      valid: validation.valid && validation.discrepancies.length === 0,
+    };
     const draft = await getCommerceRepository().createDraft(context, proposal.policy);
     const result = onboardingFromProposal({ ...proposal, policy: draft, graph: policyToGraph(draft) }, draft.id);
-    return Response.json({ ...result, draftId: draft.id, mode: proposal.source, message: proposal.source === "nim" ? "NIM proposed a draft. Validate and publish explicitly." : apiKey ? "NIM is configured but unavailable; deterministic compiler used for this draft." : "NIM is not configured; deterministic compiler used for this draft." });
+    return Response.json({ ...result, draftId: draft.id, mode: proposal.source, message: "NIM proposed a draft. Validate and publish explicitly." });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to compile policy." }, { status: 400 });
   }

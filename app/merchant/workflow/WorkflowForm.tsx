@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { policyToLegacyView, type CommercePolicy } from "../../../lib/policy";
 import type { PolicyVersionIR } from "../../../lib/policy/schema";
 
-export const previewHref = () => "/customer";
+export const previewHref = () => "https://haven-home-k1gerlw9.myshopify.com";
 
 const fields: Array<{ key: keyof Pick<CommercePolicy, "standardMaxDiscount" | "repeatMaxDiscount" | "minimumMargin" | "lowStockThreshold" | "approvalThreshold">; label: string; detail: string; suffix: string }> = [
   { key: "standardMaxDiscount", label: "Standard customer discount", detail: "Autonomous range for a new customer", suffix: "%" },
