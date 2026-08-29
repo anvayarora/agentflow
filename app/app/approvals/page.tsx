@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import CoreProductRoute from "../../product/CoreProductRoute";
 
 export default function ApprovalsEntry() {
-  redirect("/merchant/approvals");
+  return <CoreProductRoute initialPath="/app/approvals" />;
 }

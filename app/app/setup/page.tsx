@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import CoreProductRoute from "../../product/CoreProductRoute";
 
 export default function SetupEntry() {
-  redirect("/merchant/onboarding");
+  return <CoreProductRoute initialPath="/app/setup" />;
 }

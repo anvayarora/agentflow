@@ -1,29 +1,5 @@
-import { connectorCatalog, shopifyPreviewStore } from "../../lib/connectors";
-import { money } from "../../lib/catalogue";
-import { getTrustedRequestContext } from "../../lib/server/context";
-import { getGrowthResults, listApprovalQueue, listTransactionOperations, queryAuditTrail } from "../../lib/merchant/operations";
-import { MerchantShell, PageIntro, StatCard } from "./merchant-ui";
-import OverviewTrendChart from "./OverviewTrendChart";
+import CoreProductRoute from "../product/CoreProductRoute";
 
-export default async function MerchantOverview() {
-  const context = getTrustedRequestContext();
-  const [approvals, transactions, growth, audit] = await Promise.all([listApprovalQueue(context), listTransactionOperations(context), getGrowthResults(context), queryAuditTrail(context, { limit: 200 })]);
-  const pending = approvals.filter((approval) => approval.status === "PENDING").length;
-  const verified = transactions.filter((transaction) => transaction.revenueState === "VERIFIED_REVENUE");
-  const verifiedRevenue = verified.reduce((sum, transaction) => sum + transaction.amountPaise, 0);
-  const completionRate = transactions.length ? `${Math.round((verified.length / transactions.length) * 100)}%` : "—";
-  const trend = Object.entries(audit.reduce<Record<string, number>>((accumulator, event) => {
-    const day = new Date(event.createdAt).toISOString().slice(5, 10);
-    accumulator[day] = (accumulator[day] || 0) + 1;
-    return accumulator;
-  }, {})).sort(([left], [right]) => left.localeCompare(right)).map(([date, events]) => ({ date, events }));
-  const recentAudit = audit.slice(-5).reverse();
-  return <MerchantShell active="overview" title="Overview" description="A calm view of the commerce work your team has chosen to automate.">
-    <PageIntro eyebrow="Merchant operations" title="Your workspace is ready for a real Shopify customer loop." text="Start with the operating rules, then open the live storefront and inspect the evidence behind each outcome." action={<a className="button button-dark" href={shopifyPreviewStore.url} target="_blank" rel="noreferrer">Open live store <span>↗</span></a>} />
-    <div className="stats-grid"><StatCard label="Commerce transactions" value={String(transactions.length)} detail={transactions.length ? "Server-created records" : "No records yet"} tone="blue" /><StatCard label="Verified completion" value={completionRate} detail="Provider-verified only" tone="green" /><StatCard label="Merchant attention" value={String(pending)} detail="Pending approvals" tone="peach" /><StatCard label="Verified revenue" value={verifiedRevenue ? money(Math.round(verifiedRevenue / 100)) : "—"} detail={verified.length ? "Payment state verified" : "No realized revenue yet"} /></div>
-    <div className="overview-grid"><section className="workspace-card activity-card"><div className="card-heading"><div><span className="section-label">Live commerce</span><h3>Recent activity</h3></div><a className="text-link" href="/merchant/approvals">Open operations <span>↗</span></a></div><div className="event-list">{recentAudit.length ? recentAudit.map((event) => <div className="event-row" key={event.id}><span className="event-icon event-success">✓</span><div><strong>{event.eventType}</strong><small>{event.explanation}</small></div><time>{new Date(event.createdAt).toLocaleTimeString()}</time></div>) : <div className="event-row"><span className="event-icon event-success">✓</span><div><strong>Workspace ready</strong><small>Real activity will appear after the first commerce loop.</small></div></div>}</div><div className="card-footer"><span><i className="live-dot" />Updates from the server runtime</span><a className="text-link" href="/merchant/approvals">Open log</a></div></section><section className="workspace-card ready-card"><div className="card-heading"><div><span className="section-label">Growth state</span><h3>{growth.history === "OBSERVED" ? "Observed performance" : "Building evidence"}</h3></div><span className="card-spark">✦</span></div><p>{growth.history === "OBSERVED" ? `${growth.verifiedPurchases} verified purchase${growth.verifiedPurchases === 1 ? "" : "s"} attributed to active growth plays.` : "Simulations and opportunities stay clearly labeled until a provider-verified purchase exists."}</p><a className="button button-dark button-full" href="/merchant/growth">Review growth <span>↗</span></a><a className="text-link centered-link" href="/merchant/approvals">Review approvals</a></section></div>
-    <OverviewTrendChart points={trend} />
-    <div className="overview-lower-grid"><a className="feature-card" href="/merchant/workflow"><span className="feature-number">01</span><span className="feature-tag">Policy canvas</span><h3>Define the safe range for every offer.</h3><p>Set discount, margin, inventory, and approval boundaries in a persisted server draft.</p><span className="feature-link">Edit policy ↗</span></a><a className="feature-card feature-card-soft" href="/merchant/catalog"><span className="feature-number">02</span><span className="feature-tag">Catalogue</span><h3>Keep product context close to the decision.</h3><p>See connected products, inventory signals, and missing data that shape what the agent can do.</p><span className="feature-link">View catalogue ↗</span></a><div className="feature-card feature-card-dark"><span className="feature-number">03</span><span className="feature-tag">Shopper destination</span><h3>Open the real conversation on Shopify.</h3><p>The customer experience, voice assistant, and checkout remain on the connected storefront.</p><a className="feature-link" href={shopifyPreviewStore.url} target="_blank" rel="noreferrer">Open Shopify store ↗</a></div></div>
-    <section className="connector-strip"><div><span className="section-label">Connected rails</span><h3>Everything has a home.</h3></div><div className="connector-strip-items">{connectorCatalog.slice(0, 3).map((connector) => <div key={connector.name}><span className="connector-mini-icon">{connector.icon}</span><div><strong>{connector.name}</strong><small>{connector.status}</small></div></div>)}</div><a className="text-link" href="/merchant/connectors">Manage <span>↗</span></a></section>
-  </MerchantShell>;
+export default function MerchantOverview() {
+  return <CoreProductRoute initialPath="/app/overview" />;
 }

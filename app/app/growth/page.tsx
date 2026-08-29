@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import CoreProductRoute from "../../product/CoreProductRoute";
 
 export default function GrowthEntry() {
-  redirect("/merchant/growth");
+  return <CoreProductRoute initialPath="/app/growth" />;
 }
