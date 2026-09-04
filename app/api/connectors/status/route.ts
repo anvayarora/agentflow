@@ -1,6 +1,8 @@
 import { shopifyPreviewStore } from "../../../../lib/connectors";
 import { NIM_MODEL_ID } from "../../../../lib/ai/providers/nim";
 import { getShopifyUcpClient, ShopifyUcpError } from "../../../../lib/server/shopify/ucp";
+import { getDb, isDatabaseConfigured } from "../../../../db";
+import { organizations, policyVersions } from "../../../../db/schema";
 
 const env = () => (typeof process === "undefined" ? undefined : process.env);
 
@@ -8,6 +10,26 @@ export async function GET() {
   const values = env();
   const paymentProvider = (values?.PAYMENT_PROVIDER || "").toLowerCase();
   const razorpayTestConfigured = paymentProvider === "razorpay" && Boolean(values?.RAZORPAY_KEY_ID && values?.RAZORPAY_KEY_SECRET && values.RAZORPAY_KEY_ID.startsWith("rzp_test_"));
+  const database: { configured: boolean; reachable: boolean; schemaReady: boolean; seeded: boolean; provider: "aiven" | "postgres" | "unconfigured" } = {
+    configured: isDatabaseConfigured(),
+    reachable: false,
+    schemaReady: false,
+    seeded: false,
+    provider: "unconfigured",
+  };
+  if (database.configured) {
+    try {
+      const host = new URL(values?.DATABASE_URL || "").hostname.toLowerCase();
+      database.provider = host.endsWith(".aivencloud.com") ? "aiven" : "postgres";
+      const db = getDb();
+      await db.select({ id: organizations.id }).from(organizations).limit(1);
+      database.reachable = true;
+      database.schemaReady = true;
+      database.seeded = (await db.select({ id: policyVersions.id }).from(policyVersions).limit(1)).length > 0;
+    } catch {
+      database.reachable = false;
+    }
+  }
   let shopifyUcp: { status: string; version?: string; endpoint?: string; capabilities?: string[]; tools?: string[]; reason?: string } = { status: "SHOPIFY_UCP_NOT_VERIFIED" };
   try {
     const client = getShopifyUcpClient();
@@ -19,6 +41,7 @@ export async function GET() {
   }
   return Response.json({
     generatedAt: new Date().toISOString(),
+    database,
     connectors: {
       nim: {
         configured: Boolean(values?.NIM_API_KEY),
