@@ -1,4 +1,5 @@
 import { getDb, isDatabaseConfigured } from "../../db";
+import { eq } from "drizzle-orm";
 import { customerSegments, customers, organizationMembers, organizations, policies, policyRules, policyVersions, products, salespersonProfiles } from "../../db/schema";
 import { compileDemoPolicyProposal } from "../policy/compiler";
 import { demoOrganizationId } from "./context";
@@ -6,7 +7,8 @@ import { resetCommerceRepositoryForTests } from "./repositories/commerce";
 import { products as displayProducts } from "../catalogue";
 import { DEFAULT_SALESPERSON_PROFILES } from "./repositories/salesperson";
 
-export async function seedDatabase() {
+/** Destructive only in the sense that it intentionally refreshes demo fixtures. */
+export async function seedDemoDatabase() {
   if (!isDatabaseConfigured()) throw new Error("DATABASE_URL is required to seed AgentFlow PostgreSQL state.");
   const organizationId = demoOrganizationId() || "org_haven_home_demo";
   const policyId = "policy-haven-home-commerce";
@@ -41,3 +43,23 @@ export async function seedDatabase() {
   resetCommerceRepositoryForTests();
   return { organizationId, policyVersionId: policy.id, productCount: displayProducts.length, customerCount: 2 };
 }
+
+/**
+ * Production bootstrap is deliberately idempotent and non-destructive. It
+ * creates the tenant shell when a database is empty, but never changes policy
+ * pointers, merchant economics, profiles, aggregates, growth, or transactions
+ * once application state exists.
+ */
+export async function bootstrapProductionDatabase() {
+  if (!isDatabaseConfigured()) throw new Error("DATABASE_URL is required to bootstrap AgentFlow PostgreSQL state.");
+  const organizationId = demoOrganizationId() || "org_haven_home_demo";
+  const db = getDb();
+  const existing = await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, organizationId)).limit(1);
+  if (existing.length > 0) return { organizationId, created: false };
+  await db.insert(organizations).values({ id: organizationId, name: "Haven Home" }).onConflictDoNothing();
+  await db.insert(organizationMembers).values({ id: "member-haven-demo", organizationId, actorId: "demo-merchant", role: "owner" }).onConflictDoNothing();
+  return { organizationId, created: true };
+}
+
+/** Backwards-compatible demo entrypoint for existing local workflows. */
+export const seedDatabase = seedDemoDatabase;

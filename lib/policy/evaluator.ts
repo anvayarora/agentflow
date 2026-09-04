@@ -51,7 +51,10 @@ function fieldValue(condition: PolicyCondition, context: CommerceEvaluationConte
   const { product, customer, session, request } = context;
   switch (condition.field) {
     case "customer.segment": return deriveSegment(customer);
-    case "cart.totalPaise": return session.cartTotalPaise + multiplyPaise(product.listPricePaise, request.quantity);
+    // A live session cart already contains canonical line totals. Simulation
+    // contexts may provide an empty cart, in which case derive the requested
+    // line total once. Never double-count the requested item.
+    case "cart.totalPaise": return session.cartTotalPaise > 0 ? session.cartTotalPaise : multiplyPaise(product.listPricePaise, request.quantity);
     case "cart.quantity": return request.quantity;
     case "product.sku": return product.sku;
     case "product.category": return product.category;

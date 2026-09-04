@@ -9,8 +9,9 @@ export class PaymentProviderError extends Error { constructor(message: string) {
 
 let mockOrderCount = 0;
 let paymentCreateOrderCalls = 0;
+const mockOrders = new Map<string, PaymentOrder>();
 export function mockPaymentCallCount() { return mockOrderCount; }
-export function resetMockPaymentForTests() { mockOrderCount = 0; }
+export function resetMockPaymentForTests() { mockOrderCount = 0; mockOrders.clear(); }
 export function paymentCreateOrderCallCount() { return paymentCreateOrderCalls; }
 export function resetPaymentInstrumentationForTests() { paymentCreateOrderCalls = 0; }
 
@@ -18,9 +19,8 @@ const safeEqual = (left: string, right: string) => { const a = Buffer.from(left)
 
 class MockPaymentAdapter implements PaymentAdapter {
   provider = "mock" as const;
-  private orders = new Map<string, PaymentOrder>();
-  async createOrder(input: { amountPaise: number; currency: string; receipt: string; idempotencyKey: string }) { mockOrderCount += 1; paymentCreateOrderCalls += 1; const id = `mock-order-${crypto.randomUUID()}`; const order = { id, amountPaise: input.amountPaise, currency: input.currency, status: "created", provider: "mock" as const }; this.orders.set(id, order); return order; }
-  async getOrder(id: string) { const order = this.orders.get(id); if (!order) throw new PaymentProviderError("Mock payment order was not found."); return order; }
+  async createOrder(input: { amountPaise: number; currency: string; receipt: string; idempotencyKey: string }) { mockOrderCount += 1; paymentCreateOrderCalls += 1; const id = `mock-order-${crypto.randomUUID()}`; const order = { id, amountPaise: input.amountPaise, currency: input.currency, status: "created", provider: "mock" as const }; mockOrders.set(id, order); return order; }
+  async getOrder(id: string) { const order = mockOrders.get(id); if (!order) throw new PaymentProviderError("Mock payment order was not found."); return order; }
   async getPayment(id: string) { return { id, status: "created", orderId: undefined, amountPaise: undefined, currency: undefined }; }
   verifyCheckoutSignature() { return true; }
   verifyWebhook() { return true; }

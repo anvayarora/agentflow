@@ -50,6 +50,13 @@
       "when": 1788425524528,
       "tag": "0006_striped_kinsey_walden",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788548132857,
+      "tag": "0007_broken_crusher_hogan",
+      "breakpoints": true
     }
   ]
 }

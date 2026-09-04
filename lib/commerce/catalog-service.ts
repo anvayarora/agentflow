@@ -43,15 +43,49 @@ function ucpClient(session: SessionRecord) {
   return getShopifyUcpClient({ shopDomain: session.shopifyShopDomain });
 }
 
-export async function searchProducts(context: TrustedRequestContext, session: SessionRecord, input: { query: string; limit?: number; category?: string; maxPricePaise?: number }) {
+type ShopperConstraints = { query: string; limit?: number; category?: string; maxPricePaise?: number; maxWidthCm?: number; material?: string; finish?: string; excludeFrameType?: string };
+
+function textForProduct(product: ShopifyUcpProduct | { name: string; description: string; category: string; brand?: string | null; tags: string[]; attributes: Record<string, unknown> }) {
+  if ("title" in product) return `${product.title} ${product.description} ${product.tags.join(" ")} ${product.collections.map((collection) => collection.title || "").join(" ")} ${JSON.stringify(product.raw)}`.toLowerCase();
+  return `${product.name} ${product.description} ${product.category} ${product.brand || ""} ${product.tags.join(" ")} ${JSON.stringify(product.attributes)}`.toLowerCase();
+}
+
+function extractedWidthCm(product: ShopifyUcpProduct | { attributes: Record<string, unknown>; description: string; name: string }) {
+  const raw = "raw" in product ? product.raw : product.attributes;
+  const serialized = JSON.stringify(raw);
+  const keyMatch = serialized.match(/(?:width|breadth|wide)[^0-9]{0,24}(\d+(?:\.\d+)?)/i);
+  const productName = "title" in product ? product.title : product.name;
+  const textMatch = `${productName} ${product.description}`.match(/(?:width|wide|breadth)[^0-9]{0,12}(\d+(?:\.\d+)?)\s*(?:cm|centimet(?:er|re))?/i);
+  const value = keyMatch?.[1] || textMatch?.[1];
+  return value ? Number(value) : null;
+}
+
+function matchesShopperConstraints(product: ShopifyUcpProduct | { name: string; description: string; category: string; brand?: string | null; tags: string[]; attributes: Record<string, unknown>; listPricePaise: number; currency: string }, input: ShopperConstraints) {
+  const haystack = textForProduct(product);
+  if (input.category && !haystack.includes(input.category.toLowerCase())) return false;
+  if (input.maxPricePaise !== undefined) {
+    const price = "priceMinorUnits" in product ? product.priceMinorUnits : product.listPricePaise;
+    const currency = "priceMinorUnits" in product ? product.currency : product.currency;
+    if (currency.toUpperCase() !== "INR" || price > input.maxPricePaise) return false;
+  }
+  if (input.material && !haystack.includes(input.material.toLowerCase())) return false;
+  if (input.finish && !haystack.includes(input.finish.toLowerCase())) return false;
+  if (input.excludeFrameType && haystack.includes(input.excludeFrameType.toLowerCase())) return false;
+  if (input.maxWidthCm !== undefined) {
+    const width = extractedWidthCm(product);
+    if (width === null || width > input.maxWidthCm) return false;
+  }
+  return true;
+}
+
+export async function searchProducts(context: TrustedRequestContext, session: SessionRecord, input: ShopperConstraints) {
   if (liveShopify(session)) {
     const result = await ucpClient(session).searchCatalog(input.query, { limit: input.limit });
-    return result.products.filter((product): product is ShopifyUcpProduct => Boolean(product)).map(toPublicShopifyProduct).filter((product) => !input.category || product.tags.includes(input.category) || product.collections.some((collection) => collection.title === input.category));
+    return result.products.filter((product): product is ShopifyUcpProduct => Boolean(product)).filter((product) => matchesShopperConstraints(product, input)).map(toPublicShopifyProduct).slice(0, input.limit || 5);
   }
   const products = await getCommerceRepository().listProducts(context);
   return products.filter((product) => {
-    const haystack = `${product.name} ${product.description} ${product.category} ${product.brand || ""} ${product.tags.join(" ")}`.toLowerCase();
-    return haystack.includes(input.query.toLowerCase()) && (!input.category || product.category.toLowerCase() === input.category.toLowerCase()) && (input.maxPricePaise === undefined || product.listPricePaise <= input.maxPricePaise);
+    return textForProduct(product).includes(input.query.toLowerCase()) && matchesShopperConstraints(product, input);
   }).slice(0, input.limit || 5).map(toPublicProduct);
 }
 

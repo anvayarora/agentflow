@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "../../../db";
-import { approvalRequests, auditEvents, commerceTransactions, customers, paymentRecords, policies, policyRules, policyVersions, products, shoppingSessions } from "../../../db/schema";
+import { approvalRequests, auditEvents, checkoutReservations, commerceTransactionLines, commerceTransactions, customers, paymentRecords, paymentWebhookEvents, policies, policyRules, policyVersions, products, shoppingSessions } from "../../../db/schema";
 import { products as displayProducts } from "../../catalogue";
 import type { AuditEventInput } from "../../domain/audit";
 import type { CanonicalCustomer } from "../../domain/customer";
@@ -84,8 +84,11 @@ export type OfferRecord = {
 };
 
 export type ApprovalLedgerRecord = { id: string; offerId: string; status: string; decision?: string; decidedBy?: string; decidedAt?: string | null; createdAt?: string };
-export type TransactionLedgerRecord = { id: string; sessionId: string; offerId?: string | null; policyVersionId: string; status: string; totalPaise: number; currency: string; createdAt?: string };
+export type TransactionLedgerRecord = { id: string; sessionId: string; offerId?: string | null; policyVersionId: string; status: string; totalPaise: number; currency: string; provider?: string | null; providerOrderId?: string | null; idempotencyKey?: string | null; createdAt?: string };
 export type PaymentLedgerRecord = { id: string; transactionId: string; provider: string; providerPaymentId?: string | null; status: string; amountPaise: number; currency: string; createdAt?: string };
+export type CheckoutReservationStatus = "CREATING" | "CREATED" | "PAID" | "FAILED";
+export type CheckoutReservationRecord = { id: string; organizationId: string; sessionId: string; idempotencyKey: string; status: CheckoutReservationStatus; provider?: string | null; providerOrderId?: string | null; transactionId?: string | null; amountPaise: number; currency: string; error?: string | null; createdAt: string; updatedAt: string };
+export type TransactionLineSnapshot = { id: string; transactionId: string; productId?: string | null; shopifyProductGid?: string | null; shopifyVariantGid?: string | null; sku?: string | null; productTitle: string; quantity: number; unitPublicPricePaise: number; authorizedUnitPricePaise: number; lineTotalPaise: number; currency: string; growthPlayId?: string | null; snapshotStatus?: string };
 
 export type CommerceRepository = {
   listProducts(context: TrustedRequestContext): Promise<CanonicalProduct[]>;
@@ -111,8 +114,18 @@ export type CommerceRepository = {
   updateApproval(context: TrustedRequestContext, approvalId: string, update: Pick<ApprovalLedgerRecord, "status" | "decision" | "decidedBy" | "decidedAt">): Promise<void>;
   recordTransaction(context: TrustedRequestContext, transaction: TransactionLedgerRecord): Promise<void>;
   updateTransactionStatus(context: TrustedRequestContext, transactionId: string, status: string): Promise<void>;
+  markTransactionPaidOnce(context: TrustedRequestContext, transactionId: string): Promise<boolean>;
+  findTransactionByProviderOrder(context: TrustedRequestContext, providerOrderId: string): Promise<TransactionLedgerRecord | null>;
   recordPayment(context: TrustedRequestContext, payment: PaymentLedgerRecord): Promise<void>;
   updatePayment(context: TrustedRequestContext, paymentId: string, update: Pick<PaymentLedgerRecord, "status" | "providerPaymentId">): Promise<void>;
+  recordTransactionLines(context: TrustedRequestContext, lines: TransactionLineSnapshot[]): Promise<void>;
+  listVerifiedTransactionLines(context: TrustedRequestContext): Promise<TransactionLineSnapshot[]>;
+  incrementCustomerAfterVerifiedPayment(context: TrustedRequestContext, customerId: string, amountPaise: number, paidAt?: string): Promise<void>;
+  reserveCheckout(context: TrustedRequestContext, input: { sessionId: string; idempotencyKey: string; amountPaise: number; currency: string }): Promise<{ reservation: CheckoutReservationRecord; acquired: boolean }>;
+  getCheckoutReservation(context: TrustedRequestContext, sessionId: string, idempotencyKey: string): Promise<CheckoutReservationRecord | null>;
+  updateCheckoutReservation(context: TrustedRequestContext, reservationId: string, update: Partial<Pick<CheckoutReservationRecord, "status" | "provider" | "providerOrderId" | "transactionId" | "error">>): Promise<CheckoutReservationRecord | null>;
+  recordWebhookReceipt(context: TrustedRequestContext, input: { id: string; provider: string; providerEventId: string; rawBodyHash: string }): Promise<boolean>;
+  updateWebhookReceipt(context: TrustedRequestContext, id: string, status: string): Promise<void>;
   recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>): Promise<void>;
   listAudit(context: TrustedRequestContext, limit?: number): Promise<Array<AuditEventInput & { id: string; createdAt: string }>>;
 };
@@ -160,6 +173,11 @@ type MemoryState = {
   currentPolicyId: string;
   offers: OfferRecord[];
   audit: Array<AuditEventInput & { id: string; createdAt: string }>;
+  transactions: Map<string, TransactionLedgerRecord>;
+  payments: Map<string, PaymentLedgerRecord>;
+  transactionLines: Map<string, TransactionLineSnapshot[]>;
+  reservations: Map<string, CheckoutReservationRecord>;
+  webhookEvents: Set<string>;
 };
 
 const memoryStates = new Map<string, MemoryState>();
@@ -178,6 +196,11 @@ function memoryState(organizationId: string): MemoryState {
     currentPolicyId: published.id,
     offers: [],
     audit: [],
+    transactions: new Map(),
+    payments: new Map(),
+    transactionLines: new Map(),
+    reservations: new Map(),
+    webhookEvents: new Set(),
   };
   memoryStates.set(organizationId, state);
   return state;
@@ -302,10 +325,28 @@ class MemoryCommerceRepository implements CommerceRepository {
   async recordOffer(context: TrustedRequestContext, offer: OfferRecord) { this.state(context).offers.push(offer); }
   async recordApproval() { /* Runtime records are the source of truth in memory-backed tests. */ }
   async updateApproval() { /* Runtime records are the source of truth in memory-backed tests. */ }
-  async recordTransaction() { /* Runtime records are the source of truth in memory-backed tests. */ }
-  async updateTransactionStatus() { /* Runtime records are the source of truth in memory-backed tests. */ }
-  async recordPayment() { /* Runtime records are the source of truth in memory-backed tests. */ }
-  async updatePayment() { /* Runtime records are the source of truth in memory-backed tests. */ }
+  async recordTransaction(context: TrustedRequestContext, transaction: TransactionLedgerRecord) { this.state(context).transactions.set(transaction.id, { ...transaction }); }
+  async updateTransactionStatus(context: TrustedRequestContext, transactionId: string, status: string) { const transaction = this.state(context).transactions.get(transactionId); if (transaction) transaction.status = status; }
+  async markTransactionPaidOnce(context: TrustedRequestContext, transactionId: string) { const transaction = this.state(context).transactions.get(transactionId); if (!transaction || transaction.status === "PAID") return false; transaction.status = "PAID"; return true; }
+  async findTransactionByProviderOrder(context: TrustedRequestContext, providerOrderId: string) { return [...this.state(context).transactions.values()].find((transaction) => transaction.providerOrderId === providerOrderId) || null; }
+  async recordPayment(context: TrustedRequestContext, payment: PaymentLedgerRecord) { this.state(context).payments.set(payment.id, { ...payment }); }
+  async updatePayment(context: TrustedRequestContext, paymentId: string, update: Pick<PaymentLedgerRecord, "status" | "providerPaymentId">) { const payment = this.state(context).payments.get(paymentId); if (payment) Object.assign(payment, update); }
+  async recordTransactionLines(context: TrustedRequestContext, lines: TransactionLineSnapshot[]) { if (!lines.length) return; this.state(context).transactionLines.set(lines[0].transactionId, lines.map((line) => ({ ...line }))); }
+  async listVerifiedTransactionLines(context: TrustedRequestContext) { return [...this.state(context).transactions.values()].filter((transaction) => transaction.status === "PAID").flatMap((transaction) => this.state(context).transactionLines.get(transaction.id) || []); }
+  async incrementCustomerAfterVerifiedPayment(context: TrustedRequestContext, customerId: string, amountPaise: number, paidAt = now()) { const customer = await this.getCustomer(context, customerId); if (!customer) return; customer.orderCount += 1; customer.lifetimeValuePaise += amountPaise; customer.lastOrderAt = new Date(paidAt); }
+  async reserveCheckout(context: TrustedRequestContext, input: { sessionId: string; idempotencyKey: string; amountPaise: number; currency: string }) {
+    const state = this.state(context);
+    const key = `${input.sessionId}:${input.idempotencyKey}`;
+    const existing = state.reservations.get(key);
+    if (existing && existing.status !== "FAILED") return { reservation: existing, acquired: false };
+    const reservation: CheckoutReservationRecord = { id: existing?.id || id("checkout-reservation"), organizationId: context.organizationId, sessionId: input.sessionId, idempotencyKey: input.idempotencyKey, status: "CREATING", amountPaise: input.amountPaise, currency: input.currency, provider: null, providerOrderId: null, transactionId: null, error: null, createdAt: existing?.createdAt || now(), updatedAt: now() };
+    state.reservations.set(key, reservation);
+    return { reservation, acquired: true };
+  }
+  async getCheckoutReservation(context: TrustedRequestContext, sessionId: string, idempotencyKey: string) { return this.state(context).reservations.get(`${sessionId}:${idempotencyKey}`) || null; }
+  async updateCheckoutReservation(context: TrustedRequestContext, reservationId: string, update: Partial<Pick<CheckoutReservationRecord, "status" | "provider" | "providerOrderId" | "transactionId" | "error">>) { const state = this.state(context); const reservation = [...state.reservations.values()].find((item) => item.id === reservationId); if (!reservation) return null; Object.assign(reservation, update, { updatedAt: now() }); return reservation; }
+  async recordWebhookReceipt(context: TrustedRequestContext, input: { id: string; provider: string; providerEventId: string; rawBodyHash: string }) { const key = `${input.provider}:${input.providerEventId}`; const events = this.state(context).webhookEvents; if (events.has(key)) return false; events.add(key); return true; }
+  async updateWebhookReceipt() { /* Memory receipt state is sufficient for tests. */ }
   async recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>) {
     this.state(context).audit.push({ ...event, id: id("audit"), organizationId: context.organizationId, actorType: event.actorType || context.actorType, actorId: event.actorId ?? context.actorId, correlationId: event.correlationId || context.correlationId, createdAt: now() });
   }
@@ -318,6 +359,10 @@ function productFromRow(row: typeof products.$inferSelect): CanonicalProduct {
 
 function customerFromRow(row: typeof customers.$inferSelect): CanonicalCustomer {
   return { ...row, attributes: row.attributes || {} };
+}
+
+function reservationFromRow(row: typeof checkoutReservations.$inferSelect): CheckoutReservationRecord {
+  return { id: row.id, organizationId: row.organizationId, sessionId: row.shoppingSessionId, idempotencyKey: row.idempotencyKey, status: row.status as CheckoutReservationStatus, provider: row.provider, providerOrderId: row.providerOrderId, transactionId: row.transactionId, amountPaise: row.amountPaise, currency: row.currency, error: row.error, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
 }
 
 function sessionFromRow(row: Pick<typeof shoppingSessions.$inferSelect, "id" | "organizationId" | "customerId" | "currency" | "status" | "cart" | "shopifyShopDomain" | "shopifyCustomerId" | "shopifyCartId" | "salespersonProfileId" | "preferredLanguage" | "detectedLanguage" | "preferredScript" | "voiceEnabled" | "voicePace" | "canonicalLineItems" | "cartHash" | "lastSyncedAt">): SessionRecord {
@@ -476,10 +521,19 @@ class PostgresCommerceRepository implements CommerceRepository {
     await getDb().update(approvalRequests).set({ status: update.status, decision: update.decision ?? null, decidedBy: update.decidedBy ?? null, decidedAt: update.decidedAt ? new Date(update.decidedAt) : null }).where(and(eq(approvalRequests.organizationId, context.organizationId), eq(approvalRequests.id, approvalId)));
   }
   async recordTransaction(context: TrustedRequestContext, transaction: TransactionLedgerRecord) {
-    await getDb().insert(commerceTransactions).values({ id: transaction.id, organizationId: context.organizationId, shoppingSessionId: transaction.sessionId, offerId: transaction.offerId ?? null, policyVersionId: transaction.policyVersionId, status: transaction.status, totalPaise: transaction.totalPaise, currency: transaction.currency, createdAt: transaction.createdAt ? new Date(transaction.createdAt) : undefined }).onConflictDoNothing();
+    await getDb().insert(commerceTransactions).values({ id: transaction.id, organizationId: context.organizationId, shoppingSessionId: transaction.sessionId, offerId: transaction.offerId ?? null, policyVersionId: transaction.policyVersionId, status: transaction.status, totalPaise: transaction.totalPaise, currency: transaction.currency, provider: transaction.provider ?? null, providerOrderId: transaction.providerOrderId ?? null, idempotencyKey: transaction.idempotencyKey ?? null, createdAt: transaction.createdAt ? new Date(transaction.createdAt) : undefined }).onConflictDoNothing();
   }
   async updateTransactionStatus(context: TrustedRequestContext, transactionId: string, status: string) {
     await getDb().update(commerceTransactions).set({ status }).where(and(eq(commerceTransactions.organizationId, context.organizationId), eq(commerceTransactions.id, transactionId)));
+  }
+  async markTransactionPaidOnce(context: TrustedRequestContext, transactionId: string) {
+    const rows = await getDb().update(commerceTransactions).set({ status: "PAID" }).where(and(eq(commerceTransactions.organizationId, context.organizationId), eq(commerceTransactions.id, transactionId), ne(commerceTransactions.status, "PAID"))).returning({ id: commerceTransactions.id });
+    return rows.length > 0;
+  }
+  async findTransactionByProviderOrder(context: TrustedRequestContext, providerOrderId: string) {
+    const rows = await getDb().select().from(commerceTransactions).where(and(eq(commerceTransactions.organizationId, context.organizationId), eq(commerceTransactions.providerOrderId, providerOrderId))).limit(1);
+    const row = rows[0];
+    return row ? { id: row.id, sessionId: row.shoppingSessionId, offerId: row.offerId, policyVersionId: row.policyVersionId, status: row.status, totalPaise: row.totalPaise, currency: row.currency, provider: row.provider, providerOrderId: row.providerOrderId, idempotencyKey: row.idempotencyKey, createdAt: row.createdAt.toISOString() } : null;
   }
   async recordPayment(context: TrustedRequestContext, payment: PaymentLedgerRecord) {
     await getDb().insert(paymentRecords).values({ id: payment.id, organizationId: context.organizationId, transactionId: payment.transactionId, provider: payment.provider, providerPaymentId: payment.providerPaymentId ?? null, status: payment.status, amountPaise: payment.amountPaise, currency: payment.currency, createdAt: payment.createdAt ? new Date(payment.createdAt) : undefined }).onConflictDoNothing();
@@ -487,6 +541,47 @@ class PostgresCommerceRepository implements CommerceRepository {
   async updatePayment(context: TrustedRequestContext, paymentId: string, update: Pick<PaymentLedgerRecord, "status" | "providerPaymentId">) {
     await getDb().update(paymentRecords).set({ status: update.status, providerPaymentId: update.providerPaymentId ?? null }).where(and(eq(paymentRecords.organizationId, context.organizationId), eq(paymentRecords.id, paymentId)));
   }
+  async recordTransactionLines(context: TrustedRequestContext, lines: TransactionLineSnapshot[]) {
+    if (!lines.length) return;
+    await getDb().insert(commerceTransactionLines).values(lines.map((line) => ({ id: line.id, organizationId: context.organizationId, transactionId: line.transactionId, productId: line.productId ?? null, shopifyProductGid: line.shopifyProductGid ?? null, shopifyVariantGid: line.shopifyVariantGid ?? null, sku: line.sku ?? null, productTitle: line.productTitle, quantity: line.quantity, unitPublicPricePaise: line.unitPublicPricePaise, authorizedUnitPricePaise: line.authorizedUnitPricePaise, lineTotalPaise: line.lineTotalPaise, currency: line.currency, growthPlayId: line.growthPlayId ?? null, snapshotStatus: line.snapshotStatus || "IMMUTABLE" }))).onConflictDoNothing();
+  }
+  async listVerifiedTransactionLines(context: TrustedRequestContext) {
+    const paid = await getDb().select({ id: commerceTransactions.id }).from(commerceTransactions).where(and(eq(commerceTransactions.organizationId, context.organizationId), eq(commerceTransactions.status, "PAID")));
+    if (!paid.length) return [];
+    const rows = await getDb().select().from(commerceTransactionLines).where(and(eq(commerceTransactionLines.organizationId, context.organizationId), inArray(commerceTransactionLines.transactionId, paid.map((row) => row.id))));
+    return rows.map((row) => ({ id: row.id, transactionId: row.transactionId, productId: row.productId, shopifyProductGid: row.shopifyProductGid, shopifyVariantGid: row.shopifyVariantGid, sku: row.sku, productTitle: row.productTitle, quantity: row.quantity, unitPublicPricePaise: row.unitPublicPricePaise, authorizedUnitPricePaise: row.authorizedUnitPricePaise, lineTotalPaise: row.lineTotalPaise, currency: row.currency, growthPlayId: row.growthPlayId, snapshotStatus: row.snapshotStatus }));
+  }
+  async incrementCustomerAfterVerifiedPayment(context: TrustedRequestContext, customerId: string, amountPaise: number, paidAt = now()) {
+    await getDb().update(customers).set({ orderCount: sql`${customers.orderCount} + 1`, lifetimeValuePaise: sql`${customers.lifetimeValuePaise} + ${amountPaise}`, lastOrderAt: new Date(paidAt), updatedAt: new Date() }).where(and(eq(customers.organizationId, context.organizationId), eq(customers.id, customerId)));
+  }
+  async reserveCheckout(context: TrustedRequestContext, input: { sessionId: string; idempotencyKey: string; amountPaise: number; currency: string }) {
+    const createdAt = new Date();
+    const idValue = id("checkout-reservation");
+    const values = { id: idValue, organizationId: context.organizationId, shoppingSessionId: input.sessionId, idempotencyKey: input.idempotencyKey, status: "CREATING", amountPaise: input.amountPaise, currency: input.currency, provider: null, providerOrderId: null, transactionId: null, error: null, createdAt, updatedAt: createdAt };
+    const inserted = await getDb().insert(checkoutReservations).values(values).onConflictDoNothing().returning();
+    if (inserted[0]) return { reservation: reservationFromRow(inserted[0]), acquired: true };
+    const rows = await getDb().select().from(checkoutReservations).where(and(eq(checkoutReservations.organizationId, context.organizationId), eq(checkoutReservations.shoppingSessionId, input.sessionId), eq(checkoutReservations.idempotencyKey, input.idempotencyKey))).limit(1);
+    const existing = rows[0];
+    if (!existing) throw new Error("Checkout reservation could not be read after conflict.");
+    if (existing.status === "FAILED") {
+      const retried = await getDb().update(checkoutReservations).set({ status: "CREATING", amountPaise: input.amountPaise, currency: input.currency, error: null, updatedAt: new Date() }).where(and(eq(checkoutReservations.organizationId, context.organizationId), eq(checkoutReservations.id, existing.id), eq(checkoutReservations.status, "FAILED"))).returning();
+      if (retried[0]) return { reservation: reservationFromRow(retried[0]), acquired: true };
+    }
+    return { reservation: reservationFromRow(existing), acquired: false };
+  }
+  async getCheckoutReservation(context: TrustedRequestContext, sessionId: string, idempotencyKey: string) {
+    const rows = await getDb().select().from(checkoutReservations).where(and(eq(checkoutReservations.organizationId, context.organizationId), eq(checkoutReservations.shoppingSessionId, sessionId), eq(checkoutReservations.idempotencyKey, idempotencyKey))).limit(1);
+    return rows[0] ? reservationFromRow(rows[0]) : null;
+  }
+  async updateCheckoutReservation(context: TrustedRequestContext, reservationId: string, update: Partial<Pick<CheckoutReservationRecord, "status" | "provider" | "providerOrderId" | "transactionId" | "error">>) {
+    const rows = await getDb().update(checkoutReservations).set({ ...update, updatedAt: new Date() }).where(and(eq(checkoutReservations.organizationId, context.organizationId), eq(checkoutReservations.id, reservationId))).returning();
+    return rows[0] ? reservationFromRow(rows[0]) : null;
+  }
+  async recordWebhookReceipt(context: TrustedRequestContext, input: { id: string; provider: string; providerEventId: string; rawBodyHash: string }) {
+    const inserted = await getDb().insert(paymentWebhookEvents).values({ id: input.id, organizationId: context.organizationId, provider: input.provider, providerEventId: input.providerEventId, rawBodyHash: input.rawBodyHash, status: "RECEIVED" }).onConflictDoNothing().returning({ id: paymentWebhookEvents.id });
+    return inserted.length > 0;
+  }
+  async updateWebhookReceipt(context: TrustedRequestContext, idValue: string, status: string) { await getDb().update(paymentWebhookEvents).set({ status, processedAt: new Date() }).where(and(eq(paymentWebhookEvents.organizationId, context.organizationId), eq(paymentWebhookEvents.id, idValue))); }
   async recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>) {
     await getDb().insert(auditEvents).values({ id: id("audit"), organizationId: context.organizationId, actorType: event.actorType || context.actorType, actorId: event.actorId ?? context.actorId, eventType: event.eventType, shoppingSessionId: event.shoppingSessionId ?? null, policyVersionId: event.policyVersionId ?? null, entityType: event.entityType, entityId: event.entityId, correlationId: event.correlationId || context.correlationId, metadata: event.metadata });
   }

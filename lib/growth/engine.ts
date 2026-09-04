@@ -3,7 +3,6 @@ import { toPublicProduct } from "../domain/catalogue";
 import { evaluateCommerceAction } from "../policy/evaluator";
 import { getCommerceRepository } from "../server/repositories/commerce";
 import { getGrowthRepository } from "../server/repositories/growth";
-import { getRuntimeStore, runtimeKinds } from "../server/runtime/store";
 import type { TrustedRequestContext } from "../server/context";
 import type { GrowthOpportunity, GrowthSignal, GrowthOpportunityType } from "./types";
 
@@ -41,13 +40,13 @@ export type GrowthScanResult = {
 export async function scanGrowth(context: TrustedRequestContext): Promise<GrowthScanResult> {
   const commerce = getCommerceRepository();
   const growth = getGrowthRepository();
-  const [products, policy, transactions] = await Promise.all([
+  const [products, policy, verifiedLines] = await Promise.all([
     commerce.listProducts(context),
     commerce.getCurrentPolicy(context),
-    getRuntimeStore().list<Record<string, unknown>>(context, runtimeKinds.transaction, 500),
+    commerce.listVerifiedTransactionLines(context),
   ]);
   if (!policy) throw new Error("A published policy is required before growth scanning.");
-  const salesHistory: "OBSERVED" | "INSUFFICIENT_HISTORY" = transactions.some((record) => record.payload.status === "PAID" && Array.isArray(record.payload.lineItems)) ? "OBSERVED" : "INSUFFICIENT_HISTORY";
+  const salesHistory: "OBSERVED" | "INSUFFICIENT_HISTORY" = verifiedLines.length > 0 ? "OBSERVED" : "INSUFFICIENT_HISTORY";
   const floor = minimumMarginBps(policy);
   const signals: GrowthSignal[] = [];
   const opportunities: GrowthOpportunity[] = [];

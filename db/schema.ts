@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).defaultNow().notNull();
@@ -226,8 +226,74 @@ export const commerceTransactions = pgTable("commerce_transactions", {
   status: text("status").notNull(),
   totalPaise: integer("total_paise").notNull(),
   currency: text("currency").notNull(),
+  provider: text("provider"),
+  providerOrderId: text("provider_order_id"),
+  idempotencyKey: text("idempotency_key"),
   createdAt: createdAt(),
-});
+}, (table) => ({
+  organizationProviderOrderIdx: index("commerce_transactions_org_provider_order_idx").on(table.organizationId, table.providerOrderId),
+  organizationIdempotencyIdx: index("commerce_transactions_org_idempotency_idx").on(table.organizationId, table.shoppingSessionId, table.idempotencyKey),
+}));
+
+/**
+ * A durable checkout reservation is written before a provider order is created.
+ * The unique tenant/session/idempotency tuple elects exactly one caller as the
+ * provider-order creator, making retries safe across serverless instances.
+ */
+export const checkoutReservations = pgTable("checkout_reservations", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  shoppingSessionId: text("shopping_session_id").notNull().references(() => shoppingSessions.id),
+  idempotencyKey: text("idempotency_key").notNull(),
+  status: text("status").notNull(),
+  provider: text("provider"),
+  providerOrderId: text("provider_order_id"),
+  transactionId: text("transaction_id"),
+  amountPaise: integer("amount_paise").notNull(),
+  currency: text("currency").notNull(),
+  error: text("error"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => ({
+  tenantIdempotencyUnique: uniqueIndex("checkout_reservations_tenant_idempotency_idx").on(table.organizationId, table.shoppingSessionId, table.idempotencyKey),
+  providerOrderIdx: index("checkout_reservations_provider_order_idx").on(table.organizationId, table.providerOrderId),
+}));
+
+/** Immutable commercial facts used by growth, reconciliation, and audit. */
+export const commerceTransactionLines = pgTable("commerce_transaction_lines", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  transactionId: text("transaction_id").notNull().references(() => commerceTransactions.id),
+  productId: text("product_id").references(() => products.id),
+  shopifyProductGid: text("shopify_product_gid"),
+  shopifyVariantGid: text("shopify_variant_gid"),
+  sku: text("sku"),
+  productTitle: text("product_title").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPublicPricePaise: integer("unit_public_price_paise").notNull(),
+  authorizedUnitPricePaise: integer("authorized_unit_price_paise").notNull(),
+  lineTotalPaise: integer("line_total_paise").notNull(),
+  currency: text("currency").notNull(),
+  growthPlayId: text("growth_play_id"),
+  snapshotStatus: text("snapshot_status").notNull().default("IMMUTABLE"),
+  createdAt: createdAt(),
+}, (table) => ({
+  transactionLineIdx: index("commerce_transaction_lines_org_transaction_idx").on(table.organizationId, table.transactionId),
+}));
+
+/** Append-only provider event receipt used for webhook deduplication. */
+export const paymentWebhookEvents = pgTable("payment_webhook_events", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  provider: text("provider").notNull(),
+  providerEventId: text("provider_event_id").notNull(),
+  rawBodyHash: text("raw_body_hash").notNull(),
+  status: text("status").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  createdAt: createdAt(),
+}, (table) => ({
+  providerEventUnique: uniqueIndex("payment_webhook_events_provider_event_idx").on(table.organizationId, table.provider, table.providerEventId),
+}));
 
 export const paymentRecords = pgTable("payment_records", {
   id: text("id").primaryKey(),

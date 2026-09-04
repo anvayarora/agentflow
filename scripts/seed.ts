@@ -1,7 +1,7 @@
 import { closeDb } from "../db";
-import { seedDatabase } from "../lib/server/seed";
+import { bootstrapProductionDatabase, seedDemoDatabase } from "../lib/server/seed";
 
-seedDatabase()
+(process.env.SEED_MODE === "production" ? bootstrapProductionDatabase() : seedDemoDatabase())
   .then((result) => {
     console.log(JSON.stringify(result));
   })

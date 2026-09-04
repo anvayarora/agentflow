@@ -8,7 +8,7 @@ const numeric = (schema: z.ZodNumber) => z.preprocess((value) => {
 const positiveQuantity = numeric(z.number().int().min(1).max(20));
 
 export const storefrontToolSchemas = {
-  search_products: z.object({ query: z.string().trim().min(1).max(120), category: z.string().trim().max(80).optional(), maxPricePaise: numeric(z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)).optional(), limit: numeric(z.number().int().min(1).max(10)).default(5) }).strict(),
+  search_products: z.object({ query: z.string().trim().min(1).max(120), category: z.string().trim().max(80).optional(), maxPricePaise: numeric(z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)).optional(), maxWidthCm: numeric(z.number().positive().max(10_000)).optional(), material: z.string().trim().max(80).optional(), finish: z.string().trim().max(80).optional(), excludeFrameType: z.string().trim().max(80).optional(), limit: numeric(z.number().int().min(1).max(10)).default(5) }).strict(),
   get_product: z.object({ productId: id }).strict(),
   compare_products: z.object({ productIds: z.array(id).min(2).max(4) }).strict(),
   get_inventory: z.object({ productId: id, variantId: id.optional() }).strict(),
