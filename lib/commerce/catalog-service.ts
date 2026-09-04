@@ -14,7 +14,12 @@ export type PublicCart = {
   cartHash: string;
 };
 
-function liveShopify(session?: SessionRecord) { return ["shopify", "shopify_ucp"].includes((process.env.CATALOG_PROVIDER || "demo").toLowerCase()) && Boolean(session?.shopifyShopDomain); }
+function liveShopify(session?: SessionRecord) {
+  const provider = (process.env.CATALOG_PROVIDER || "demo").toLowerCase();
+  if (process.env.NODE_ENV === "production" && provider !== "shopify" && provider !== "shopify_ucp") throw new Error("PRODUCTION_CATALOG_NOT_CONFIGURED");
+  if (process.env.NODE_ENV === "production" && !session?.shopifyShopDomain) throw new Error("PRODUCTION_SHOPIFY_SESSION_REQUIRED");
+  return ["shopify", "shopify_ucp"].includes(provider) && Boolean(session?.shopifyShopDomain);
+}
 
 function cartTotal(cart: ShopifyUcpCart) { return cart.totals.find((total) => total.type === "total")?.amount || 0; }
 

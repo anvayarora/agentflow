@@ -43,6 +43,13 @@
       "when": 1787946654331,
       "tag": "0005_prompt6_salesperson_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788425524528,
+      "tag": "0006_striped_kinsey_walden",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { policyToGraph } from "../../../../../../lib/policy/graph-projection";
-import { getTrustedRequestContext } from "../../../../../../lib/server/context";
 import { getCommerceRepository } from "../../../../../../lib/server/repositories/commerce";
+import { merchantContextOrResponse } from "../../../../../../lib/server/route-guards";
 
 export const runtime = "nodejs";
 
@@ -11,7 +11,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ dra
   try {
     const parsed = resolutionSchema.safeParse(await request.json());
     if (!parsed.success) return Response.json({ error: "Invalid discrepancy resolution." }, { status: 400 });
-    const context = getTrustedRequestContext(request);
+    const auth = await merchantContextOrResponse(request, "ADMIN");
+    if ("response" in auth) return auth.response;
+    const context = auth.context;
     const { draftId } = await params;
     const result = await getCommerceRepository().resolveDraftDiscrepancy(context, draftId, parsed.data.discrepancyId, parsed.data.resolution);
     return Response.json({ ...result, graph: policyToGraph(result.policy) });

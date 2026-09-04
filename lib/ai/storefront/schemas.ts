@@ -14,7 +14,7 @@ export const storefrontToolSchemas = {
   get_inventory: z.object({ productId: id, variantId: id.optional() }).strict(),
   get_cart: z.object({}).strict(),
   update_cart: z.object({ lines: z.array(z.object({ variantId: id, quantity: positiveQuantity }).strict()).max(20) }).strict(),
-  request_offer: z.object({ productId: id, variantId: id.optional(), quantity: positiveQuantity, requestedUnitPricePaise: numeric(z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)).optional(), requestedDiscountBps: numeric(z.number().int().min(0).max(10_000)).optional() }).strict().refine((value) => value.requestedUnitPricePaise !== undefined || value.requestedDiscountBps !== undefined, "An offer request must include a price or discount."),
+  request_offer: z.object({ productId: id, variantId: id.optional(), quantity: positiveQuantity, requestedUnitPricePaise: numeric(z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)).optional(), requestedDiscountBps: numeric(z.number().int().min(0).max(10_000)).optional(), growthPlayId: id.optional() }).strict().refine((value) => value.requestedUnitPricePaise !== undefined || value.requestedDiscountBps !== undefined, "An offer request must include a price or discount."),
   accept_offer: z.object({ offerId: id }).strict(),
   request_approval: z.object({ offerId: id }).strict(),
   get_approval_status: z.object({ approvalId: id }).strict(),

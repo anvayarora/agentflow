@@ -2,7 +2,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 import { request as httpsRequest } from "node:https";
 
-export const NIM_MODEL_ID = "nvidia/nemotron-3-ultra-550b-a55b";
+export const NIM_MODEL_ID = "nvidia/nemotron-3.5-lightning-30b-a3b";
 export const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
 /**

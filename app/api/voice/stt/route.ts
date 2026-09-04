@@ -1,12 +1,18 @@
 import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { getCommerceRepository } from "../../../../lib/server/repositories/commerce";
 import { SarvamConfigurationError, SarvamProviderError, transcribeAudio } from "../../../../lib/ai/providers/sarvam";
+import { assertSignedShopperBoundary } from "../../../../lib/server/route-guards";
+import { consumeRateLimit, rateLimitResponse } from "../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const boundary = assertSignedShopperBoundary(request);
+  if (boundary) return boundary;
   const context = { ...getTrustedRequestContext(request), actorType: "customer" as const, actorId: "demo-customer" };
   try {
+    const limit = await consumeRateLimit("VOICE_STT", context);
+    if (!limit.ok) return rateLimitResponse(limit.retryAfter);
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return Response.json({ error: "An audio file is required." }, { status: 400 });

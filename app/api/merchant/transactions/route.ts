@@ -1,11 +1,13 @@
-import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { getTransactionOperation, listTransactionOperations } from "../../../../lib/merchant/operations";
+import { merchantContextOrResponse } from "../../../../lib/server/route-guards";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const context = getTrustedRequestContext(request);
+    const auth = await merchantContextOrResponse(request, "VIEWER");
+    if ("response" in auth) return auth.response;
+    const context = auth.context;
     const transactionId = new URL(request.url).searchParams.get("transactionId");
     return Response.json(transactionId ? { transaction: await getTransactionOperation(context, transactionId) } : { transactions: await listTransactionOperations(context) });
   } catch (error) {

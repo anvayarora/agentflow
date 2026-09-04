@@ -58,7 +58,10 @@ class RazorpayTestAdapter implements PaymentAdapter {
 
 export function getPaymentAdapter(): PaymentAdapter {
   const provider = (process.env.PAYMENT_PROVIDER || "").toLowerCase();
-  if (provider === "mock") return new MockPaymentAdapter();
+  if (provider === "mock") {
+    if (process.env.NODE_ENV === "production") throw new PaymentConfigurationError("PRODUCTION_MOCK_PAYMENT_DISABLED");
+    return new MockPaymentAdapter();
+  }
   if (provider === "razorpay") {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const secret = process.env.RAZORPAY_KEY_SECRET;

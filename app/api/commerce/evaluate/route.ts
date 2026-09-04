@@ -2,6 +2,7 @@ import { z } from "zod";
 import { evaluateCommerceAction } from "../../../../lib/policy/evaluator";
 import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { getCommerceRepository } from "../../../../lib/server/repositories/commerce";
+import { assertSignedShopperBoundary } from "../../../../lib/server/route-guards";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,8 @@ const commerceRequestSchema = z.object({
 }).strict().refine((value) => value.requestedPricePaise === undefined || value.requestedDiscountBps === undefined, { message: "Send requestedPricePaise or requestedDiscountBps, not both." });
 
 export async function POST(request: Request) {
+  const boundary = assertSignedShopperBoundary(request);
+  if (boundary) return boundary;
   const context = getTrustedRequestContext(request);
   try {
     const parsed = commerceRequestSchema.safeParse(await request.json());

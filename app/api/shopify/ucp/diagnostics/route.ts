@@ -1,11 +1,13 @@
-import { getTrustedRequestContext } from "../../../../../lib/server/context";
 import { persistShopifyCapabilitySnapshot, resolveShopifyIntegration } from "../../../../../lib/server/shopify/integration";
 import { getShopifyUcpClient, ShopifyUcpError } from "../../../../../lib/server/shopify/ucp";
+import { merchantContextOrResponse } from "../../../../../lib/server/route-guards";
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  const context = getTrustedRequestContext();
+export async function GET(request: Request) {
+  const auth = await merchantContextOrResponse(request, "VIEWER");
+  if ("response" in auth) return auth.response;
+  const context = auth.context;
   try {
     const client = getShopifyUcpClient();
     const business = await client.discoverBusiness();

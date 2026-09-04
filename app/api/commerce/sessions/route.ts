@@ -2,12 +2,15 @@ import { z } from "zod";
 import { deriveCustomerSegment } from "../../../../lib/domain/customer";
 import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { getCommerceRepository } from "../../../../lib/server/repositories/commerce";
+import { assertSignedShopperBoundary } from "../../../../lib/server/route-guards";
 
 export const runtime = "nodejs";
 
 const ignoredClientBody = z.object({}).passthrough();
 
 export async function POST(request: Request) {
+  const boundary = assertSignedShopperBoundary(request);
+  if (boundary) return boundary;
   try {
     const body = await request.json().catch(() => ({}));
     ignoredClientBody.parse(body);

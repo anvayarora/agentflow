@@ -120,6 +120,7 @@ export async function getEligibleGrowthActions(input: { context: TrustedRequestC
       continue;
     }
     await commerce.recordAudit(input.context, { eventType: "GROWTH_ACTION_AUTHORIZED", entityType: "growth_play", entityId: play.id, shoppingSessionId: session.id, policyVersionId: policy.id, metadata: { maxIncentiveBps: play.maxIncentiveBps } });
+    await commerce.recordAudit(input.context, { eventType: "GROWTH_PLAY_PRESENTED", entityType: "growth_play", entityId: play.id, shoppingSessionId: session.id, policyVersionId: policy.id, metadata: { maxIncentiveBps: play.maxIncentiveBps, productId: primary.id } });
     actions.push({ playId: play.id, type: play.commercialStrategy.type || "PRIVATE_INCENTIVE", product: toPublicProduct(primary), secondaryProductIds: play.secondaryProductIds, maxIncentiveBps: play.maxIncentiveBps, requiresPolicyRuntime: true });
   }
   return { sessionId: input.sessionId, actions };

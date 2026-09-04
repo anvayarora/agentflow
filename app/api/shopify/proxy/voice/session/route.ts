@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ensureVoiceSession } from "../../../../../../lib/voice/service";
 import { ShopifyProxyError } from "../../../../../../lib/server/shopify/proxy";
 import { getBoundShopifySession } from "../../../../../../lib/server/shopify/proxy-context";
+import { consumeRateLimit, rateLimitResponse } from "../../../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,8 @@ export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json().catch(() => ({})));
     const { context, session } = await getBoundShopifySession(request, body.sessionId);
+    const limit = await consumeRateLimit("VOICE_PREVIEW", `${context.organizationId}:${session.id}`);
+    if (!limit.ok) return rateLimitResponse(limit.retryAfter);
     const view = await ensureVoiceSession(context, session.id, body.salespersonProfileId, body.language, body.voiceEnabled !== false);
     return Response.json(view);
   } catch (error) {

@@ -5,6 +5,7 @@ import { SarvamConfigurationError, SarvamProviderError, synthesizeSpeech } from 
 import { normalizeLanguage } from "../../../../../../lib/voice/salesperson";
 import { ShopifyProxyError } from "../../../../../../lib/server/shopify/proxy";
 import { getBoundShopifySession } from "../../../../../../lib/server/shopify/proxy-context";
+import { consumeRateLimit, rateLimitResponse } from "../../../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,8 @@ export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json());
     const { context, session } = await getBoundShopifySession(request, body.sessionId);
+    const limit = await consumeRateLimit("VOICE_TTS", `${context.organizationId}:${session.id}`);
+    if (!limit.ok) return rateLimitResponse(limit.retryAfter);
     const profileId = body.salespersonProfileId || session.salespersonProfileId;
     if (!profileId) return Response.json({ error: "Choose an AI salesperson first." }, { status: 400 });
     const profile = await getSalespersonRepository().select(context, profileId);

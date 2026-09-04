@@ -2,11 +2,14 @@ import { z } from "zod";
 import { getCart, updateCart } from "../../../../lib/commerce/catalog-service";
 import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { getCommerceRepository } from "../../../../lib/server/repositories/commerce";
+import { assertSignedShopperBoundary } from "../../../../lib/server/route-guards";
 
 export const runtime = "nodejs";
 const schema = z.object({ sessionId: z.string().trim().min(1).max(255), lines: z.array(z.object({ variantId: z.string().trim().min(1).max(255), quantity: z.number().int().min(1).max(20) }).strict()).max(20) }).strict();
 
 export async function POST(request: Request) {
+  const boundary = assertSignedShopperBoundary(request);
+  if (boundary) return boundary;
   try {
     const input = schema.parse(await request.json());
     const context = { ...getTrustedRequestContext(request), actorType: "customer" as const, actorId: "demo-customer" };
@@ -17,6 +20,8 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const boundary = assertSignedShopperBoundary(request);
+  if (boundary) return boundary;
   try {
     const sessionId = z.string().trim().min(1).max(255).parse(new URL(request.url).searchParams.get("sessionId"));
     const context = { ...getTrustedRequestContext(request), actorType: "customer" as const, actorId: "demo-customer" };

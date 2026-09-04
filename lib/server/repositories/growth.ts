@@ -6,7 +6,25 @@ import { getCommerceRepository } from "./commerce";
 import { growthOpportunitySchema, growthPlaySchema, growthSignalSchema, type GrowthOpportunity, type GrowthPlay, type GrowthSignal, type GrowthOpportunityStatus, type GrowthPlayStatus } from "../../growth/types";
 
 export type InventorySnapshot = { id: string; organizationId: string; productId: string; variantId?: string | null; quantity: number; observedAt: string; source: string };
-export type GrowthAttribution = { id: string; organizationId: string; growthPlayId: string; transactionId: string; baselineCartAmountPaise: number; actualPaidAmountPaise: number; incrementalAovPaise: number; verified: boolean; createdAt: string };
+export type GrowthAttribution = {
+  id: string;
+  organizationId: string;
+  growthPlayId: string;
+  transactionId: string;
+  sessionId?: string | null;
+  shopDomain?: string | null;
+  salespersonProfileId?: string | null;
+  baselineCartHash?: string | null;
+  postPlayCartHash?: string | null;
+  baselineCartAmountPaise: number;
+  actualPaidAmountPaise: number;
+  incrementalAovPaise: number;
+  attributableQuantity: number;
+  status: "POTENTIAL" | "VERIFIED" | "REJECTED";
+  verified: boolean;
+  verifiedAt?: string | null;
+  createdAt: string;
+};
 
 type GrowthState = { inventory: InventorySnapshot[]; signals: GrowthSignal[]; opportunities: GrowthOpportunity[]; plays: GrowthPlay[]; attributions: GrowthAttribution[] };
 const memory = new Map<string, GrowthState>();
@@ -22,6 +40,28 @@ function state(organizationId: string): GrowthState {
 function owned<T extends { organizationId: string }>(record: T, context: TrustedRequestContext) {
   if (record.organizationId !== context.organizationId) throw new Error("Growth record is not owned by this organization.");
   return record;
+}
+
+function mapAttribution(row: typeof growthAttributions.$inferSelect): GrowthAttribution {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    growthPlayId: row.growthPlayId,
+    transactionId: row.transactionId,
+    sessionId: row.sessionId,
+    shopDomain: row.shopDomain,
+    salespersonProfileId: row.salespersonProfileId,
+    baselineCartHash: row.baselineCartHash,
+    postPlayCartHash: row.postPlayCartHash,
+    baselineCartAmountPaise: row.baselineCartAmountPaise,
+    actualPaidAmountPaise: row.actualPaidAmountPaise,
+    incrementalAovPaise: row.incrementalAovPaise,
+    attributableQuantity: row.attributableQuantity,
+    status: row.status as GrowthAttribution["status"],
+    verified: row.verified,
+    verifiedAt: row.verifiedAt?.toISOString() || null,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 export class GrowthRepository {
@@ -114,16 +154,65 @@ export class GrowthRepository {
   }
 
   async createAttribution(context: TrustedRequestContext, input: Omit<GrowthAttribution, "id" | "organizationId" | "createdAt"> & { id?: string }) {
-    const attribution = { ...input, id: input.id || id("attribution"), organizationId: context.organizationId, createdAt: now() };
-    if (!isDatabaseConfigured()) { state(context.organizationId).attributions.push(attribution); return attribution; }
-    await getDb().insert(growthAttributions).values({ id: attribution.id, organizationId: attribution.organizationId, growthPlayId: attribution.growthPlayId, transactionId: attribution.transactionId, baselineCartAmountPaise: attribution.baselineCartAmountPaise, actualPaidAmountPaise: attribution.actualPaidAmountPaise, incrementalAovPaise: attribution.incrementalAovPaise, verified: attribution.verified });
-    return attribution;
+    const attribution: GrowthAttribution = {
+      ...input,
+      id: input.id || id("attribution"),
+      organizationId: context.organizationId,
+      attributableQuantity: input.attributableQuantity ?? 0,
+      status: input.status || (input.verified ? "VERIFIED" : "POTENTIAL"),
+      verifiedAt: input.verifiedAt ?? (input.verified ? now() : null),
+      createdAt: now(),
+    };
+    if (!isDatabaseConfigured()) {
+      const existing = state(context.organizationId).attributions.find((row) => row.transactionId === attribution.transactionId);
+      if (existing) return existing;
+      state(context.organizationId).attributions.push(attribution);
+      return attribution;
+    }
+    await getDb().insert(growthAttributions).values({
+      id: attribution.id,
+      organizationId: attribution.organizationId,
+      growthPlayId: attribution.growthPlayId,
+      transactionId: attribution.transactionId,
+      sessionId: attribution.sessionId || null,
+      shopDomain: attribution.shopDomain || null,
+      salespersonProfileId: attribution.salespersonProfileId || null,
+      baselineCartHash: attribution.baselineCartHash || null,
+      postPlayCartHash: attribution.postPlayCartHash || null,
+      baselineCartAmountPaise: attribution.baselineCartAmountPaise,
+      actualPaidAmountPaise: attribution.actualPaidAmountPaise,
+      incrementalAovPaise: attribution.incrementalAovPaise,
+      attributableQuantity: attribution.attributableQuantity,
+      status: attribution.status,
+      verified: attribution.verified,
+      verifiedAt: attribution.verifiedAt ? new Date(attribution.verifiedAt) : null,
+    }).onConflictDoNothing({ target: [growthAttributions.organizationId, growthAttributions.transactionId] });
+    const rows = await getDb().select().from(growthAttributions).where(and(eq(growthAttributions.organizationId, context.organizationId), eq(growthAttributions.transactionId, attribution.transactionId))).limit(1);
+    return rows[0] ? mapAttribution(rows[0]) : attribution;
+  }
+
+  async finalizeAttribution(context: TrustedRequestContext, transactionId: string, actualPaidAmountPaise: number, attributableQuantity: number) {
+    if (!Number.isSafeInteger(actualPaidAmountPaise) || actualPaidAmountPaise < 0) throw new Error("Paid amount must be a safe integer.");
+    if (!Number.isSafeInteger(attributableQuantity) || attributableQuantity < 0) throw new Error("Attributable quantity must be a non-negative integer.");
+    if (!isDatabaseConfigured()) {
+      const row = state(context.organizationId).attributions.find((item) => item.transactionId === transactionId);
+      if (!row) return null;
+      if (row.verified) return row;
+      const next = { ...row, actualPaidAmountPaise, incrementalAovPaise: Math.max(0, actualPaidAmountPaise - row.baselineCartAmountPaise), attributableQuantity, status: "VERIFIED" as const, verified: true, verifiedAt: now() };
+      state(context.organizationId).attributions[state(context.organizationId).attributions.indexOf(row)] = next;
+      return next;
+    }
+    const existing = await getDb().select().from(growthAttributions).where(and(eq(growthAttributions.organizationId, context.organizationId), eq(growthAttributions.transactionId, transactionId))).limit(1);
+    if (!existing[0]) return null;
+    if (existing[0].verified) return mapAttribution(existing[0]);
+    const updated = await getDb().update(growthAttributions).set({ actualPaidAmountPaise, incrementalAovPaise: Math.max(0, actualPaidAmountPaise - existing[0].baselineCartAmountPaise), attributableQuantity, status: "VERIFIED", verified: true, verifiedAt: new Date() }).where(and(eq(growthAttributions.organizationId, context.organizationId), eq(growthAttributions.transactionId, transactionId))).returning();
+    return updated[0] ? mapAttribution(updated[0]) : null;
   }
 
   async listAttributions(context: TrustedRequestContext) {
     if (!isDatabaseConfigured()) return [...state(context.organizationId).attributions].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const rows = await getDb().select().from(growthAttributions).where(eq(growthAttributions.organizationId, context.organizationId)).orderBy(desc(growthAttributions.createdAt));
-    return rows.map((row) => ({ id: row.id, organizationId: row.organizationId, growthPlayId: row.growthPlayId, transactionId: row.transactionId, baselineCartAmountPaise: row.baselineCartAmountPaise, actualPaidAmountPaise: row.actualPaidAmountPaise, incrementalAovPaise: row.incrementalAovPaise, verified: row.verified, createdAt: row.createdAt.toISOString() }));
+    return rows.map(mapAttribution);
   }
 
   async updateProductEconomics(context: TrustedRequestContext, productId: string, update: { costPaise?: number | null; brand?: string | null; category?: string; externalId?: string | null; privateTags?: string[]; supplier?: string | null }) {

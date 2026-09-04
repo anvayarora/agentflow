@@ -5,6 +5,7 @@ import { getCart } from "./catalog-service";
 import { findAcceptedOffer } from "./offer-service";
 import { getPaymentAdapter, type PaymentOrder } from "../payments/payment-adapter";
 import { multiplyPaise } from "../domain/money";
+import { getGrowthRepository } from "../server/repositories/growth";
 
 export type TransactionPayload = { sessionId: string; offerId: string; policyVersionId: string; amountPaise: number; currency: string; cartHash: string; idempotencyKey: string; provider: string; providerOrderId?: string; status: "CREATED" | "PAID" | "FAILED"; createdAt: string };
 export type PaymentPayload = { transactionId: string; provider: string; providerOrderId?: string; providerPaymentId?: string; providerStatus?: string; status: string; amountPaise: number; currency: string; idempotencyKey: string; verifiedAt?: string; createdAt: string };
@@ -94,6 +95,7 @@ export async function getPaymentStatus(context: TrustedRequestContext, transacti
 export async function verifyPayment(context: TrustedRequestContext, input: { transactionId: string; orderId?: string; paymentId: string; signature: string }) {
   const transaction = await getRuntimeStore().get<TransactionPayload>(context, runtimeKinds.transaction, input.transactionId);
   if (!transaction || !transaction.payload.providerOrderId) throw new Error("Transaction was not found.");
+  if (transaction.payload.status === "PAID") return getPaymentStatus(context, transaction.id);
   if (input.orderId && input.orderId !== transaction.payload.providerOrderId) {
     await securityAudit(context, { eventType: "UNAUTHORIZED_CHECKOUT_REJECTED", entityType: "transaction", entityId: transaction.id, sessionId: transaction.payload.sessionId, policyVersionId: transaction.payload.policyVersionId, metadata: { reason: "callback_order_mismatch" } });
     throw new Error("Payment order does not match the authorized transaction.");
@@ -118,6 +120,29 @@ export async function verifyPayment(context: TrustedRequestContext, input: { tra
   await getRuntimeStore().update(context, runtimeKinds.payment, payment.id, { status: "PAID", payload: { ...payment.payload, providerPaymentId: input.paymentId, providerStatus: providerPayment.status, status: "PAID", verifiedAt: new Date().toISOString() } });
   await getCommerceRepository().updateTransactionStatus(context, transaction.id, "PAID");
   await getCommerceRepository().updatePayment(context, payment.id, { status: "PAID", providerPaymentId: input.paymentId });
+  const acceptedOffer = await findAcceptedOffer(context, transaction.payload.sessionId);
+  if (acceptedOffer?.payload.growthPlayId) {
+    const growth = getGrowthRepository();
+    const session = await getCommerceRepository().getSession(context, transaction.payload.sessionId);
+    const product = await getCommerceRepository().getProduct(context, acceptedOffer.payload.productId);
+    const quantity = acceptedOffer.payload.quantity;
+    await growth.createAttribution(context, {
+      growthPlayId: acceptedOffer.payload.growthPlayId,
+      transactionId: transaction.id,
+      sessionId: transaction.payload.sessionId,
+      shopDomain: session?.shopifyShopDomain || null,
+      baselineCartHash: acceptedOffer.payload.baselineCartHash || acceptedOffer.payload.cartHash,
+      postPlayCartHash: transaction.payload.cartHash,
+      baselineCartAmountPaise: acceptedOffer.payload.baselineCartAmountPaise || 0,
+      actualPaidAmountPaise: transaction.payload.amountPaise,
+      incrementalAovPaise: Math.max(0, transaction.payload.amountPaise - (acceptedOffer.payload.baselineCartAmountPaise || 0)),
+      attributableQuantity: quantity,
+      status: "VERIFIED",
+      verified: true,
+      verifiedAt: new Date().toISOString(),
+    });
+    await getCommerceRepository().recordAudit(context, { eventType: "GROWTH_ATTRIBUTION_VERIFIED", entityType: "transaction", entityId: transaction.id, shoppingSessionId: transaction.payload.sessionId, policyVersionId: transaction.payload.policyVersionId, metadata: { growthPlayId: acceptedOffer.payload.growthPlayId, attributableQuantity: quantity, productId: product?.id || null, amountPaise: transaction.payload.amountPaise } });
+  }
   await getCommerceRepository().recordAudit(context, { eventType: "PAYMENT_VERIFIED", entityType: "transaction", entityId: transaction.id, shoppingSessionId: transaction.payload.sessionId, policyVersionId: transaction.payload.policyVersionId, metadata: { provider: transaction.payload.provider, providerOrderId: transaction.payload.providerOrderId, providerPaymentId: input.paymentId, providerStatus: providerPayment.status, amountPaise: transaction.payload.amountPaise } });
   return getPaymentStatus(context, transaction.id);
 }

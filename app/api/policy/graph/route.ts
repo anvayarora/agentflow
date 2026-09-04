@@ -1,4 +1,4 @@
-import { getTrustedRequestContext } from "../../../../lib/server/context";
+import { merchantContextOrResponse } from "../../../../lib/server/route-guards";
 import { getCommerceRepository } from "../../../../lib/server/repositories/commerce";
 import { graphToPolicy, policyToGraph } from "../../../../lib/policy/graph-projection";
 import { validatePolicy } from "../../../../lib/policy/validator";
@@ -6,7 +6,9 @@ import { validatePolicy } from "../../../../lib/policy/validator";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const context = getTrustedRequestContext(request);
+  const auth = await merchantContextOrResponse(request, "VIEWER");
+  if ("response" in auth) return auth.response;
+  const context = auth.context;
   const id = new URL(request.url).searchParams.get("draftId");
   const policy = id ? await getCommerceRepository().getPolicyVersion(context, id) : await getCommerceRepository().getCurrentPolicy(context);
   return policy ? Response.json({ policyVersionId: policy.id, graph: policyToGraph(policy) }) : Response.json({ error: "Policy not found." }, { status: 404 });
@@ -16,7 +18,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as { draftId?: string; graph?: import("../../../../lib/policy/graph-projection").PolicyGraph };
     if (!body.draftId || !body.graph) return Response.json({ error: "draftId and graph are required." }, { status: 400 });
-    const context = getTrustedRequestContext(request);
+    const auth = await merchantContextOrResponse(request, "ADMIN");
+    if ("response" in auth) return auth.response;
+    const context = auth.context;
     const repository = getCommerceRepository();
     const draft = await repository.getDraft(context, body.draftId);
     if (!draft) return Response.json({ error: "Draft policy not found." }, { status: 404 });

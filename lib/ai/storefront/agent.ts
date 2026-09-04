@@ -7,7 +7,7 @@ import { getRuntimeStore, runtimeKinds } from "../../server/runtime/store";
 import { STOREFRONT_AGENT_INSTRUCTIONS } from "./prompts";
 import { emptyShopperPreferences, shopperPreferencesSchema, updateShopperPreferences, type ShopperPreferences } from "./preferences";
 import { storefrontToolSchemas } from "./schemas";
-import { getNimModel, NimConfigurationError } from "../providers/nim";
+import { getNimModel, NimConfigurationError, NIM_MODEL_ID } from "../providers/nim";
 import { compareProducts, getCart, getInventory, getProduct, searchProducts, updateCart } from "../../commerce/catalog-service";
 import { acceptOffer, getApprovalStatus, requestApproval, requestOffer } from "../../commerce/offer-service";
 import { createCheckout, getPaymentStatus } from "../../commerce/checkout-service";
@@ -60,6 +60,15 @@ function stripReasoningMarkers(text: string) {
   const closingMarker = text.lastIndexOf("</think>");
   const visible = closingMarker >= 0 ? text.slice(closingMarker + "</think>".length) : text;
   return visible.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
+function isProviderUnavailable(error: unknown) {
+  if (error instanceof NimConfigurationError) return true;
+  if (!error || typeof error !== "object") return false;
+  const record = error as { name?: unknown; message?: unknown; statusCode?: unknown };
+  const name = typeof record.name === "string" ? record.name.toLowerCase() : "";
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  return typeof record.statusCode === "number" || name.includes("apicall") || name.includes("provider") || message.includes("nim request timed out");
 }
 
 async function loadPreferences(context: TrustedRequestContext, sessionId: string) {
@@ -156,17 +165,18 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const ui = projectStorefrontUi({ message: text, products, cart: latestCart, offer: latestOffer && typeof latestOffer === "object" ? latestOffer as { offerId?: string; outcome?: string } : null, approval: latestApproval && typeof latestApproval === "object" ? latestApproval as { approvalId?: string } : null, checkout: latestCheckout, shortlistProductIds: shortlist.productIds });
     const latencyMs = Date.now() - turnStartedAt;
     await repository.recordAudit(context, { eventType: "AGENT_TURN_COMPLETED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { modelCalls: result.steps.length, toolSteps, responseLength: text.length, latencyMs, toolTimings } });
-    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b", modelCalls: result.steps.length, toolSteps, ui, shortlist: shortlist.productIds, growthActions, latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
+    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: result.steps.length, toolSteps, ui, shortlist: shortlist.productIds, growthActions, latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
   } catch (error) {
     const configuration = error instanceof NimConfigurationError;
+    const providerUnavailable = isProviderUnavailable(error);
     console.error("[agentflow] storefront agent execution failed", {
       name: error instanceof Error ? error.name : typeof error,
       statusCode: typeof error === "object" && error !== null && "statusCode" in error ? String((error as { statusCode?: unknown }).statusCode ?? "") : undefined,
     });
     await repository.recordAudit(context, { eventType: "TRANSACTION_FAILED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { reason: configuration ? "nim_not_configured" : "agent_execution_failed" } });
     const shortlist = await getShortlist(context, sessionId).catch(() => ({ productIds: [] }));
-    const text = configuration ? "The storefront assistant is not enabled for this environment yet." : safeMessage;
+    const text = configuration ? "The storefront assistant is not enabled for this environment yet." : providerUnavailable ? "The storefront assistant is temporarily unavailable. Please try again in a moment." : safeMessage;
     const latencyMs = Date.now() - turnStartedAt;
-    return { sessionId, message: text, status: configuration ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || "nvidia/nemotron-3-ultra-550b-a55b", modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
+    return { sessionId, message: text, status: providerUnavailable ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
   }
 }

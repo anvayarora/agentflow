@@ -160,6 +160,9 @@ export async function getGrowthResults(context: TrustedRequestContext) {
   const paid = transactions.filter((transaction) => transaction.revenueState === "VERIFIED_REVENUE");
   const verifiedAttributions = attributions.filter((item) => item.verified && paid.some((transaction) => transaction.transactionId === item.transactionId));
   const realizedIncrementalAovPaise = verifiedAttributions.reduce((sum, item) => sum + item.incrementalAovPaise, 0);
+  const overallVerifiedRevenuePaise = paid.reduce((sum, item) => sum + item.amountPaise, 0);
+  const growthAttributedVerifiedRevenuePaise = verifiedAttributions.reduce((sum, item) => sum + item.actualPaidAmountPaise, 0);
+  const growthAttributedUnits = verifiedAttributions.reduce((sum, item) => sum + item.attributableQuantity, 0);
   return {
     history: paid.length ? "OBSERVED" : "INSUFFICIENT_HISTORY",
     opportunities: opportunities.length,
@@ -168,8 +171,12 @@ export async function getGrowthResults(context: TrustedRequestContext) {
     funnel: { opportunities: opportunities.length, active: plays.filter((play) => play.status === "ACTIVE").length, attributed: attributions.length, verified: verifiedAttributions.length },
     verifiedPurchases: verifiedAttributions.length,
     realizedAovPaise: realizedIncrementalAovPaise,
-    realizedRevenuePaise: paid.reduce((sum, item) => sum + item.amountPaise, 0),
-    unitsMoved: verifiedAttributions.length,
+    overallVerifiedRevenuePaise,
+    growthAttributedVerifiedRevenuePaise,
+    growthAttributedIncrementalAovPaise: realizedIncrementalAovPaise,
+    realizedRevenuePaise: growthAttributedVerifiedRevenuePaise,
+    unitsMoved: growthAttributedUnits,
+    verifiedGrowthUnits: growthAttributedUnits,
     marginSafety: "ENFORCED_BY_POLICY_RUNTIME",
     attributions: attributions.map((item) => ({ ...item, state: item.verified && paid.some((transaction) => transaction.transactionId === item.transactionId) ? "VERIFIED" : "POTENTIAL" })),
   };

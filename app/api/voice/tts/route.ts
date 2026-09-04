@@ -4,13 +4,19 @@ import { getCommerceRepository } from "../../../../lib/server/repositories/comme
 import { getSalespersonRepository } from "../../../../lib/server/repositories/salesperson";
 import { SarvamConfigurationError, SarvamProviderError, synthesizeSpeech } from "../../../../lib/ai/providers/sarvam";
 import { normalizeLanguage, type SalespersonPace } from "../../../../lib/voice/salesperson";
+import { assertSignedShopperBoundary } from "../../../../lib/server/route-guards";
+import { consumeRateLimit, rateLimitResponse } from "../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 const schema = z.object({ text: z.string().trim().min(1).max(4000), salespersonProfileId: z.string().trim().min(1).max(255), sessionId: z.string().trim().min(1).max(255).optional(), language: z.enum(["en-IN", "hi-IN", "hinglish"]).optional(), preview: z.boolean().optional() }).strict();
 
 export async function POST(request: Request) {
+  const boundary = assertSignedShopperBoundary(request);
+  if (boundary) return boundary;
   const context = { ...getTrustedRequestContext(request), actorType: "customer" as const, actorId: "demo-customer" };
   try {
+    const limit = await consumeRateLimit("VOICE_TTS", context);
+    if (!limit.ok) return rateLimitResponse(limit.retryAfter);
     const body = schema.parse(await request.json());
     const profile = await getSalespersonRepository().select(context, body.salespersonProfileId);
     const repository = getCommerceRepository();

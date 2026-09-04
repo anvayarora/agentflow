@@ -2,6 +2,8 @@ import { z } from "zod";
 import { runStorefrontAgent } from "../../../../lib/ai/storefront/agent";
 import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { getCommerceRepository } from "../../../../lib/server/repositories/commerce";
+import { assertSignedShopperBoundary } from "../../../../lib/server/route-guards";
+import { consumeRateLimit, rateLimitResponse } from "../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -14,10 +16,14 @@ const schema = z.object({
 }).strict();
 
 export async function POST(request: Request) {
+  const boundary = assertSignedShopperBoundary(request);
+  if (boundary) return boundary;
   try {
     const body = schema.parse(await request.json());
     const base = getTrustedRequestContext(request);
     const context = { ...base, actorType: "customer" as const, actorId: "demo-customer" };
+    const limit = await consumeRateLimit("STORE_CHAT", context);
+    if (!limit.ok) return rateLimitResponse(limit.retryAfter);
     const repository = getCommerceRepository();
     const session = body.sessionId ? await repository.getSession(context, body.sessionId) : await repository.createSession(context);
     if (!session) return Response.json({ error: "Commerce session was not found." }, { status: 404 });

@@ -3,9 +3,10 @@ import { onboardingFromProposal } from "../../../../lib/onboarding";
 import { policyToGraph } from "../../../../lib/policy/graph-projection";
 import { conditionFields, conditionOperators, policyVersionSchema, type PolicyVersionIR } from "../../../../lib/policy/schema";
 import { validatePolicy } from "../../../../lib/policy/validator";
-import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { getCommerceRepository } from "../../../../lib/server/repositories/commerce";
 import { nimFetch } from "../../../../lib/ai/providers/nim";
+import { merchantContextOrResponse } from "../../../../lib/server/route-guards";
+import { consumeRateLimit, rateLimitResponse } from "../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -83,7 +84,11 @@ export async function POST(request: Request) {
   try {
     const parsed = bodySchema.safeParse(await request.json());
     if (!parsed.success) return Response.json({ error: "A merchant prompt is required." }, { status: 400 });
-    const context = getTrustedRequestContext(request);
+    const auth = await merchantContextOrResponse(request, "ADMIN");
+    if ("response" in auth) return auth.response;
+    const context = auth.context;
+    const budget = await consumeRateLimit("POLICY_COMPILE", context);
+    if (!budget.ok) return rateLimitResponse(budget.retryAfter);
     const apiKey = getEnv("NIM_API_KEY");
     if (!apiKey) return Response.json({ error: "NVIDIA Setup Copilot is not configured. Add NIM_API_KEY server-side before compiling a policy." }, { status: 503 });
 

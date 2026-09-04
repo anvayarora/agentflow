@@ -1,5 +1,5 @@
-import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { queryAuditTrail, type AuditFilters } from "../../../../lib/merchant/operations";
+import { merchantContextOrResponse } from "../../../../lib/server/route-guards";
 
 export const runtime = "nodejs";
 
@@ -18,7 +18,9 @@ export async function GET(request: Request) {
       actorId: params.get("actorId") || undefined,
       limit: Number(params.get("limit") || 200),
     };
-    return Response.json({ events: await queryAuditTrail(getTrustedRequestContext(request), filters) });
+    const auth = await merchantContextOrResponse(request, "VIEWER");
+    if ("response" in auth) return auth.response;
+    return Response.json({ events: await queryAuditTrail(auth.context, filters) });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Audit trail unavailable." }, { status: 400 });
   }

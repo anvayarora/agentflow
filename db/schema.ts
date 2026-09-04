@@ -156,6 +156,26 @@ export const shoppingSessions = pgTable("shopping_sessions", {
   updatedAt: updatedAt(),
 });
 
+/** Server-created merchant sessions. The raw token is never persisted. */
+export const authSessions = pgTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id),
+  actorId: text("actor_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: createdAt(),
+}, (table) => ({ tokenHashUnique: uniqueIndex("auth_sessions_token_hash_idx").on(table.tokenHash) }));
+
+/** Shared server-side request budget buckets for expensive provider calls. */
+export const rateLimitBuckets = pgTable("rate_limit_buckets", {
+  id: text("id").primaryKey(),
+  bucketKey: text("bucket_key").notNull(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
+  count: integer("count").notNull().default(0),
+  updatedAt: updatedAt(),
+}, (table) => ({ bucketKeyUnique: uniqueIndex("rate_limit_buckets_key_idx").on(table.bucketKey) }));
+
 export const offers = pgTable("offers", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => organizations.id),
@@ -346,8 +366,16 @@ export const growthAttributions = pgTable("growth_attributions", {
   actualPaidAmountPaise: integer("actual_paid_amount_paise").notNull(),
   incrementalAovPaise: integer("incremental_aov_paise").notNull(),
   verified: boolean("verified").notNull(),
+  sessionId: text("session_id"),
+  shopDomain: text("shop_domain"),
+  salespersonProfileId: text("salesperson_profile_id"),
+  baselineCartHash: text("baseline_cart_hash"),
+  postPlayCartHash: text("post_play_cart_hash"),
+  attributableQuantity: integer("attributable_quantity").notNull().default(0),
+  status: text("status").notNull().default("POTENTIAL"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
   createdAt: createdAt(),
-});
+}, (table) => ({ transactionUnique: uniqueIndex("growth_attributions_transaction_unique_idx").on(table.organizationId, table.transactionId) }));
 
 /**
  * Durable execution state for the storefront agent. Domain services validate

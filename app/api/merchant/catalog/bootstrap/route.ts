@@ -3,7 +3,8 @@ import { buildCatalogueImportPreview, columnMappingSchema, parseCatalogueFile } 
 import { syncCatalogueRows, ShopifyAdminError } from "../../../../../lib/server/shopify/admin-catalogue";
 import { createImportRun, getImportRun, listImportRuns, updateImportRun } from "../../../../../lib/server/repositories/bootstrap";
 import { getCommerceRepository } from "../../../../../lib/server/repositories/commerce";
-import { getTrustedRequestContext } from "../../../../../lib/server/context";
+import { merchantContextOrResponse } from "../../../../../lib/server/route-guards";
+import { consumeRateLimit, rateLimitResponse } from "../../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -15,12 +16,18 @@ function errorResponse(error: unknown) {
 }
 
 export async function GET(request: Request) {
-  try { return Response.json({ runs: await listImportRuns(getTrustedRequestContext(request)) }); }
+  const auth = await merchantContextOrResponse(request, "VIEWER");
+  if ("response" in auth) return auth.response;
+  try { return Response.json({ runs: await listImportRuns(auth.context) }); }
   catch (error) { return errorResponse(error); }
 }
 
 export async function POST(request: Request) {
-  const context = getTrustedRequestContext(request);
+  const auth = await merchantContextOrResponse(request, "OPERATOR");
+  if ("response" in auth) return auth.response;
+  const context = auth.context;
+  const limit = await consumeRateLimit("CATALOG_IMPORT", context);
+  if (!limit.ok) return rateLimitResponse(limit.retryAfter);
   try {
     const contentType = request.headers.get("content-type") || "";
     if (contentType.includes("multipart/form-data")) {

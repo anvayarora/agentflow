@@ -28,6 +28,9 @@ export type OfferPayload = {
   overrideId?: string;
   createdAt: string;
   expiresAt: string;
+  growthPlayId?: string;
+  baselineCartAmountPaise?: number;
+  baselineCartHash?: string;
 };
 
 export type ApprovalPayload = { offerId: string; sessionId: string; status: "PENDING" | "APPROVED" | "COUNTERED" | "REJECTED"; decision?: string; counterPricePaise?: number; decidedBy?: string; createdAt: string; decidedAt?: string };
@@ -52,7 +55,7 @@ async function currentCartHash(context: TrustedRequestContext, session: SessionR
   return cart.cartHash || hashCart({ currency: session.currency, lines: [] } satisfies CanonicalCart);
 }
 
-export async function requestOffer(context: TrustedRequestContext, input: { sessionId: string; productId: string; variantId?: string; quantity: number; requestedUnitPricePaise?: number; requestedDiscountBps?: number }) {
+export async function requestOffer(context: TrustedRequestContext, input: { sessionId: string; productId: string; variantId?: string; quantity: number; requestedUnitPricePaise?: number; requestedDiscountBps?: number; growthPlayId?: string }) {
   const repository = getCommerceRepository();
   const session = await sessionFor(context, input.sessionId);
   const activeOffers = await getRuntimeStore().list<OfferPayload>(context, runtimeKinds.offer);
@@ -77,7 +80,8 @@ export async function requestOffer(context: TrustedRequestContext, input: { sess
   const requestedDiscountBps = input.requestedDiscountBps ?? calculateDiscountBps(product.listPricePaise, requestedPricePaise);
   const evaluation = evaluateCommerceAction({ organizationId: context.organizationId, policy, product, customer, session, request: { quantity: input.quantity, requestedPricePaise, requestedDiscountBps } });
   const status = evaluation.outcome === "ESCALATE" ? "PENDING_APPROVAL" : "OFFERED";
-  const offer: RuntimeRecord<OfferPayload> = { id: id("offer"), organizationId: context.organizationId, kind: runtimeKinds.offer, status, payload: { sessionId: session.id, customerId: customer.id, productId: product.id, variantId: input.variantId, quantity: input.quantity, requestedUnitPricePaise: evaluation.requestedPricePaise, requestedDiscountBps, outcome: evaluation.outcome, approvedPricePaise: evaluation.approvedPricePaise, counterPricePaise: evaluation.counterPricePaise, requiresApproval: evaluation.requiresApproval, matchedRules: evaluation.matchedRules, evidence: evaluation.evidence, policyVersionId: evaluation.policyVersionId, policyVersionNumber: evaluation.policyVersionNumber, cartHash: await currentCartHash(context, session), status, persistedOffer: productIsPersisted, createdAt: new Date().toISOString(), expiresAt: expiry() }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: expiry() };
+  const issuedCartHash = await currentCartHash(context, session);
+  const offer: RuntimeRecord<OfferPayload> = { id: id("offer"), organizationId: context.organizationId, kind: runtimeKinds.offer, status, payload: { sessionId: session.id, customerId: customer.id, productId: product.id, variantId: input.variantId, quantity: input.quantity, requestedUnitPricePaise: evaluation.requestedPricePaise, requestedDiscountBps, outcome: evaluation.outcome, approvedPricePaise: evaluation.approvedPricePaise, counterPricePaise: evaluation.counterPricePaise, requiresApproval: evaluation.requiresApproval, matchedRules: evaluation.matchedRules, evidence: evaluation.evidence, policyVersionId: evaluation.policyVersionId, policyVersionNumber: evaluation.policyVersionNumber, cartHash: issuedCartHash, baselineCartHash: issuedCartHash, baselineCartAmountPaise: session.cartTotalPaise, growthPlayId: input.growthPlayId, status, persistedOffer: productIsPersisted, createdAt: new Date().toISOString(), expiresAt: expiry() }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: expiry() };
   await getRuntimeStore().put(context, offer);
   if (productIsPersisted) {
     await repository.recordOffer(context, { id: offer.id, organizationId: context.organizationId, sessionId: session.id, productId: product.id, policyVersionId: evaluation.policyVersionId, evaluation, quantity: input.quantity, requestedDiscountBps, createdAt: offer.payload.createdAt });
@@ -143,18 +147,44 @@ export async function decideApproval(context: TrustedRequestContext, approvalId:
   const offer = await getOffer(context, approval.payload.offerId);
   const session = await sessionFor(context, offer.payload.sessionId);
   if (decision === "COUNTER" && (!Number.isSafeInteger(counterPricePaise) || counterPricePaise! < 0)) throw new Error("A safe counter price is required.");
+  const repository = getCommerceRepository();
+  const [currentPolicy, product, customer] = await Promise.all([
+    repository.getCurrentPolicy(context),
+    repository.getProduct(context, offer.payload.productId),
+    repository.getCustomer(context, session.customerId),
+  ]);
+  if (!currentPolicy || !product || !customer) throw new Error("Approval cannot be revalidated because canonical commerce context is unavailable.");
+  const liveCartHash = await currentCartHash(context, session);
+  if (liveCartHash !== offer.payload.cartHash) throw new Error("The cart changed after the approval request. Request a new offer.");
+  if (Date.parse(offer.payload.expiresAt) <= Date.now()) throw new Error("Approval has expired.");
+  const proposedPricePaise = decision === "COUNTER" ? counterPricePaise! : (offer.payload.counterPricePaise ?? offer.payload.approvedPricePaise ?? offer.payload.requestedUnitPricePaise);
+  if (!Number.isSafeInteger(proposedPricePaise) || proposedPricePaise < 0 || proposedPricePaise > product.listPricePaise) throw new Error("The merchant decision contains an invalid price.");
+  const revalidation = evaluateCommerceAction({ organizationId: context.organizationId, policy: currentPolicy, product, customer, session, request: { quantity: offer.payload.quantity, requestedPricePaise: proposedPricePaise, requestedDiscountBps: calculateDiscountBps(product.listPricePaise, proposedPricePaise) } });
+  const hardRisk = revalidation.riskFlags.some((flag) => ["hard-deny", "margin-floor", "missing-cost", "insufficient-stock", "negotiation-disabled"].includes(flag));
+  await repository.recordAudit(context, { eventType: "MERCHANT_APPROVAL_REVALIDATED", entityType: "approval", entityId: approvalId, shoppingSessionId: session.id, policyVersionId: currentPolicy.id, metadata: { decision, offerId: offer.id, outcome: revalidation.outcome, hardRisk, policyVersionNumber: currentPolicy.version } });
+  // A missing private cost deliberately remains an ESCALATE (never an ALLOW).
+  // A merchant may issue a scoped counter only after this fresh evaluation;
+  // known hard denials and margin/inventory risks can never be bypassed.
+  const counterHardRisk = revalidation.riskFlags.some((flag) => ["hard-deny", "margin-floor", "insufficient-stock", "negotiation-disabled"].includes(flag));
+  if (decision === "COUNTER" && (revalidation.outcome !== "ALLOW" && !revalidation.riskFlags.includes("missing-cost") || counterHardRisk)) {
+    await repository.recordAudit(context, { eventType: "MERCHANT_COUNTER_REJECTED_BY_POLICY", entityType: "approval", entityId: approvalId, shoppingSessionId: session.id, policyVersionId: currentPolicy.id, metadata: { offerId: offer.id, proposedPricePaise, outcome: revalidation.outcome, riskFlags: revalidation.riskFlags } });
+    throw new Error("Counter price is outside the current published policy.");
+  }
+  if (decision === "APPROVE" && (revalidation.outcome === "DENY" || revalidation.outcome === "COUNTER" || hardRisk)) {
+    throw new Error("Approval cannot bypass the current published policy.");
+  }
   const decidedAt = new Date().toISOString();
   const nextStatus = decision === "APPROVE" ? "APPROVED" : decision === "COUNTER" ? "COUNTERED" : "REJECTED";
   const transitioned = await store.transition(context, runtimeKinds.approval, approvalId, "PENDING", nextStatus, { ...approval.payload, status: nextStatus, decision, counterPricePaise, decidedBy: context.actorId, decidedAt });
   if (!transitioned) throw new Error("Approval was already decided by another merchant.");
   if (offer.payload.persistedOffer !== false) await getCommerceRepository().updateApproval(context, approvalId, { status: nextStatus, decision, decidedBy: context.actorId, decidedAt });
   if (decision === "REJECT") await store.update(context, runtimeKinds.offer, offer.id, { status: "REJECTED", payload: { ...offer.payload, status: "REJECTED" } });
-  else if (decision === "APPROVE") await store.update(context, runtimeKinds.offer, offer.id, { status: "APPROVED", payload: { ...offer.payload, status: "APPROVED", approvedPricePaise: offer.payload.counterPricePaise ?? offer.payload.approvedPricePaise } });
+  else if (decision === "APPROVE") await store.update(context, runtimeKinds.offer, offer.id, { status: "APPROVED", payload: { ...offer.payload, status: "APPROVED", approvedPricePaise: proposedPricePaise, policyVersionId: currentPolicy.id, policyVersionNumber: currentPolicy.version } });
   else {
     const override: RuntimeRecord<OverridePayload> = { id: id("override"), organizationId: context.organizationId, kind: runtimeKinds.override, status: "AVAILABLE", payload: { offerId: offer.id, sessionId: session.id, customerId: offer.payload.customerId, cartHash: offer.payload.cartHash, approvedPricePaise: counterPricePaise!, currency: session.currency, quantity: offer.payload.quantity, variantId: offer.payload.variantId, status: "AVAILABLE", nonce: crypto.randomUUID(), expiresAt: expiry() }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: expiry() };
     await store.put(context, override);
     await store.update(context, runtimeKinds.offer, offer.id, { status: "COUNTERED", payload: { ...offer.payload, status: "COUNTERED", counterPricePaise, overrideId: override.id } });
-    await getCommerceRepository().recordAudit(context, { eventType: "SCOPED_OVERRIDE_ISSUED", entityType: "scoped_override", entityId: override.id, shoppingSessionId: session.id, policyVersionId: offer.payload.policyVersionId, metadata: { offerId: offer.id, approvedPricePaise: counterPricePaise } });
+    await repository.recordAudit(context, { eventType: "SCOPED_OVERRIDE_ISSUED", entityType: "scoped_override", entityId: override.id, shoppingSessionId: session.id, policyVersionId: currentPolicy.id, metadata: { offerId: offer.id, approvedPricePaise: counterPricePaise } });
   }
   await getCommerceRepository().recordAudit(context, { eventType: "APPROVAL_DECIDED", entityType: "approval", entityId: approvalId, shoppingSessionId: session.id, metadata: { decision, offerId: offer.id } });
   return getApprovalStatus(context, approvalId);

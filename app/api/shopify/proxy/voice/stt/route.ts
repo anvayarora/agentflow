@@ -2,6 +2,7 @@ import { getCommerceRepository } from "../../../../../../lib/server/repositories
 import { SarvamConfigurationError, SarvamProviderError, transcribeAudio } from "../../../../../../lib/ai/providers/sarvam";
 import { ShopifyProxyError } from "../../../../../../lib/server/shopify/proxy";
 import { getBoundShopifySession } from "../../../../../../lib/server/shopify/proxy-context";
+import { consumeRateLimit, rateLimitResponse } from "../../../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,8 @@ export async function POST(request: Request) {
     const sessionId = typeof form.get("sessionId") === "string" ? String(form.get("sessionId")) : undefined;
     const languageCode = typeof form.get("languageCode") === "string" ? String(form.get("languageCode")) : undefined;
     const { context, session } = await getBoundShopifySession(request, sessionId);
+    const limit = await consumeRateLimit("VOICE_STT", `${context.organizationId}:${session.id}`);
+    if (!limit.ok) return rateLimitResponse(limit.retryAfter);
     const result = await transcribeAudio({
       bytes: new Uint8Array(await file.arrayBuffer()),
       filename: file.name || "voice-turn.webm",

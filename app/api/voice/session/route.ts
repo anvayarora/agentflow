@@ -2,11 +2,14 @@ import { z } from "zod";
 import { getTrustedRequestContext } from "../../../../lib/server/context";
 import { getCommerceRepository } from "../../../../lib/server/repositories/commerce";
 import { ensureVoiceSession } from "../../../../lib/voice/service";
+import { assertSignedShopperBoundary } from "../../../../lib/server/route-guards";
 
 export const runtime = "nodejs";
 const schema = z.object({ sessionId: z.string().trim().min(1).max(255).optional(), salespersonProfileId: z.string().trim().min(1).max(255).optional(), language: z.enum(["en-IN", "hi-IN", "hinglish"]).optional(), voiceEnabled: z.boolean().optional(), selectorOpened: z.boolean().optional() }).strict();
 
 export async function POST(request: Request) {
+  const boundary = assertSignedShopperBoundary(request);
+  if (boundary) return boundary;
   try {
     const body = schema.parse(await request.json().catch(() => ({})));
     const context = { ...getTrustedRequestContext(request), actorType: "customer" as const, actorId: "demo-customer" };

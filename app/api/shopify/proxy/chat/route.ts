@@ -4,6 +4,7 @@ import { resolveShopifyIntegration } from "../../../../../lib/server/shopify/int
 import { ShopifyProxyError, verifyShopifyProxyRequest } from "../../../../../lib/server/shopify/proxy";
 import { getCommerceRepository } from "../../../../../lib/server/repositories/commerce";
 import { runStorefrontAgent } from "../../../../../lib/ai/storefront/agent";
+import { consumeRateLimit, rateLimitResponse } from "../../../../../lib/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -48,6 +49,8 @@ export async function POST(request: Request) {
     const repository = getCommerceRepository();
     const session = body.sessionId ? await repository.getSession(context, body.sessionId) : await repository.createShopifySession(context, { shopDomain: verified.shopDomain, shopifyCustomerId: verified.loggedInCustomerId });
     if (!session) return Response.json({ error: "Shopify AgentFlow session was not found." }, { status: 404 });
+    const limit = await consumeRateLimit("STORE_CHAT", `${context.organizationId}:${session.id}`);
+    if (!limit.ok) return rateLimitResponse(limit.retryAfter);
     if (session.shopifyShopDomain && session.shopifyShopDomain !== verified.shopDomain) return Response.json({ error: "Shopify session shop binding is invalid." }, { status: 403 });
     await repository.recordAudit(context, { eventType: "COMMERCE_ACTION_REQUESTED", entityType: "shopify_agent_message", entityId: session.id, shoppingSessionId: session.id, metadata: { source: "shopify_app_proxy", messageLength: body.message.length, pageType: body.storefrontContext?.pageType || "unknown", hasHints: Boolean(body.storefrontContext) } });
     const agent = await runStorefrontAgent({ context, sessionId: session.id, message: body.message, storefrontContext: body.storefrontContext });
