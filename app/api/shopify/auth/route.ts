@@ -5,7 +5,12 @@ import { persistShopifyAdminAccessToken } from "../../../../lib/server/shopify/i
 
 export const runtime = "nodejs";
 
-const clientId = () => (typeof process === "undefined" ? undefined : process.env.SHOPIFY_API_KEY || process.env.SHOPIFY_CLIENT_ID) || "19d42795913d92ee245ec090b27d7ebd";
+const clientId = () => {
+  const configured = typeof process === "undefined" ? undefined : process.env.SHOPIFY_API_KEY || process.env.SHOPIFY_CLIENT_ID;
+  if (configured) return configured;
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return "";
+  return "19d42795913d92ee245ec090b27d7ebd";
+};
 const publicUrl = () => ((typeof process === "undefined" ? undefined : process.env.AGENTFLOW_PUBLIC_URL) || "https://agentflow-beige-eight.vercel.app").replace(/\/$/, "");
 const scopes = ["read_products", "write_products"];
 
@@ -16,7 +21,9 @@ function cookieValue(request: Request, name: string) {
 }
 
 function context(request: Request): TrustedRequestContext {
-  return { organizationId: demoOrganizationId() || "org_haven_home_demo", actorType: "system", actorId: "shopify-oauth", correlationId: request.headers.get("x-correlation-id") || crypto.randomUUID() };
+  const organizationId = (typeof process === "undefined" ? undefined : process.env.AGENTFLOW_MERCHANT_ORGANIZATION_ID) || demoOrganizationId();
+  if (!organizationId) throw new Error("A configured AgentFlow organization is required for Shopify OAuth.");
+  return { organizationId, actorType: "system", actorId: "shopify-oauth", correlationId: request.headers.get("x-correlation-id") || crypto.randomUUID() };
 }
 
 function validHmac(url: URL, secret: string) {
@@ -40,6 +47,7 @@ export async function GET(request: Request) {
   if (shop !== configuredShopDomain()) return reject("This app is restricted to the configured development shop.", 403);
   const secret = typeof process === "undefined" ? undefined : process.env.SHOPIFY_API_SECRET;
   if (!secret) return reject("SHOPIFY_API_SECRET is not configured.", 424);
+  if (!clientId()) return reject("SHOPIFY_API_KEY is not configured.", 424);
   const redirectUri = `${publicUrl()}/api/shopify/auth/callback`;
 
   if (!isCallback) {

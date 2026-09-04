@@ -1,4 +1,5 @@
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).defaultNow().notNull();
@@ -96,6 +97,7 @@ export const policyVersions = pgTable("policy_versions", {
   updatedAt: updatedAt(),
 }, (table) => ({
   policyVersionUnique: uniqueIndex("policy_versions_policy_version_idx").on(table.policyId, table.version),
+  statusCheck: check("policy_versions_status_check", sql`${table.status} in ('DRAFT', 'PUBLISHED', 'ARCHIVED')`),
 }));
 
 export const policyRules = pgTable("policy_rules", {
@@ -193,7 +195,9 @@ export const offers = pgTable("offers", {
   matchedRules: jsonb("matched_rules").$type<string[]>().notNull(),
   evidence: jsonb("evidence").$type<unknown[]>().notNull(),
   createdAt: createdAt(),
-});
+}, (table) => ({
+  statusCheck: check("offers_outcome_check", sql`${table.outcome} in ('ALLOW', 'COUNTER', 'ESCALATE', 'DENY')`),
+}));
 
 export const approvalRequests = pgTable("approval_requests", {
   id: text("id").primaryKey(),
@@ -204,7 +208,9 @@ export const approvalRequests = pgTable("approval_requests", {
   decidedBy: text("decided_by"),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   createdAt: createdAt(),
-});
+}, (table) => ({
+  statusCheck: check("approval_requests_status_check", sql`${table.status} in ('PENDING', 'APPROVED', 'COUNTERED', 'REJECTED', 'EXPIRED')`),
+}));
 
 export const scopedOverrides = pgTable("scoped_overrides", {
   id: text("id").primaryKey(),
@@ -233,6 +239,7 @@ export const commerceTransactions = pgTable("commerce_transactions", {
 }, (table) => ({
   organizationProviderOrderIdx: index("commerce_transactions_org_provider_order_idx").on(table.organizationId, table.providerOrderId),
   organizationIdempotencyIdx: index("commerce_transactions_org_idempotency_idx").on(table.organizationId, table.shoppingSessionId, table.idempotencyKey),
+  statusCheck: check("commerce_transactions_status_check", sql`${table.status} in ('CREATED', 'PAID', 'FAILED')`),
 }));
 
 /**
@@ -257,6 +264,7 @@ export const checkoutReservations = pgTable("checkout_reservations", {
 }, (table) => ({
   tenantIdempotencyUnique: uniqueIndex("checkout_reservations_tenant_idempotency_idx").on(table.organizationId, table.shoppingSessionId, table.idempotencyKey),
   providerOrderIdx: index("checkout_reservations_provider_order_idx").on(table.organizationId, table.providerOrderId),
+  statusCheck: check("checkout_reservations_status_check", sql`${table.status} in ('CREATING', 'CREATED', 'PAID', 'FAILED')`),
 }));
 
 /** Immutable commercial facts used by growth, reconciliation, and audit. */
@@ -305,7 +313,9 @@ export const paymentRecords = pgTable("payment_records", {
   amountPaise: integer("amount_paise").notNull(),
   currency: text("currency").notNull(),
   createdAt: createdAt(),
-});
+}, (table) => ({
+  statusCheck: check("payment_records_status_check", sql`${table.status} in ('CREATED', 'AUTHORIZED', 'PAID', 'FAILED', 'REFUNDED')`),
+}));
 
 export const auditEvents = pgTable("audit_events", {
   id: text("id").primaryKey(),

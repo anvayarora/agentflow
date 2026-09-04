@@ -117,7 +117,9 @@ export function normalizeShopDomain(value: string): string {
 }
 
 export function configuredShopDomain(): string {
-  return normalizeShopDomain(env()?.SHOPIFY_STORE_DOMAIN || DEFAULT_SHOPIFY_DOMAIN);
+  const configured = env()?.SHOPIFY_STORE_DOMAIN;
+  if (!configured && env()?.NODE_ENV === "production") throw new ShopifyUcpError("SHOPIFY_STORE_DOMAIN must be configured in production.", "SHOPIFY_STORE_DOMAIN_NOT_CONFIGURED");
+  return normalizeShopDomain(configured || DEFAULT_SHOPIFY_DOMAIN);
 }
 
 function configuredUcpContext(): JsonRecord | undefined {

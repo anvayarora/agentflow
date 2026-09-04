@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "../../../db";
 import { approvalRequests, auditEvents, checkoutReservations, commerceTransactionLines, commerceTransactions, customers, paymentRecords, paymentWebhookEvents, policies, policyRules, policyVersions, products, shoppingSessions } from "../../../db/schema";
 import { products as displayProducts } from "../../catalogue";
@@ -89,6 +89,23 @@ export type PaymentLedgerRecord = { id: string; transactionId: string; provider:
 export type CheckoutReservationStatus = "CREATING" | "CREATED" | "PAID" | "FAILED";
 export type CheckoutReservationRecord = { id: string; organizationId: string; sessionId: string; idempotencyKey: string; status: CheckoutReservationStatus; provider?: string | null; providerOrderId?: string | null; transactionId?: string | null; amountPaise: number; currency: string; error?: string | null; createdAt: string; updatedAt: string };
 export type TransactionLineSnapshot = { id: string; transactionId: string; productId?: string | null; shopifyProductGid?: string | null; shopifyVariantGid?: string | null; sku?: string | null; productTitle: string; quantity: number; unitPublicPricePaise: number; authorizedUnitPricePaise: number; lineTotalPaise: number; currency: string; growthPlayId?: string | null; snapshotStatus?: string };
+export type AuditListOptions = {
+  limit?: number;
+  before?: string;
+  after?: string;
+  eventType?: string;
+  entityType?: string;
+  entityId?: string;
+  correlationId?: string;
+  shoppingSessionId?: string;
+  policyVersionId?: string;
+  actorId?: string;
+  transactionId?: string;
+  offerId?: string;
+  approvalId?: string;
+  growthPlayId?: string;
+  shopDomain?: string;
+};
 
 export type CommerceRepository = {
   listProducts(context: TrustedRequestContext): Promise<CanonicalProduct[]>;
@@ -116,8 +133,10 @@ export type CommerceRepository = {
   updateTransactionStatus(context: TrustedRequestContext, transactionId: string, status: string): Promise<void>;
   markTransactionPaidOnce(context: TrustedRequestContext, transactionId: string): Promise<boolean>;
   findTransactionByProviderOrder(context: TrustedRequestContext, providerOrderId: string): Promise<TransactionLedgerRecord | null>;
+  listTransactions(context: TrustedRequestContext): Promise<TransactionLedgerRecord[]>;
   recordPayment(context: TrustedRequestContext, payment: PaymentLedgerRecord): Promise<void>;
   updatePayment(context: TrustedRequestContext, paymentId: string, update: Pick<PaymentLedgerRecord, "status" | "providerPaymentId">): Promise<void>;
+  listPayments(context: TrustedRequestContext): Promise<Array<PaymentLedgerRecord & { id: string }>>;
   recordTransactionLines(context: TrustedRequestContext, lines: TransactionLineSnapshot[]): Promise<void>;
   listVerifiedTransactionLines(context: TrustedRequestContext): Promise<TransactionLineSnapshot[]>;
   incrementCustomerAfterVerifiedPayment(context: TrustedRequestContext, customerId: string, amountPaise: number, paidAt?: string): Promise<void>;
@@ -127,7 +146,7 @@ export type CommerceRepository = {
   recordWebhookReceipt(context: TrustedRequestContext, input: { id: string; provider: string; providerEventId: string; rawBodyHash: string }): Promise<boolean>;
   updateWebhookReceipt(context: TrustedRequestContext, id: string, status: string): Promise<void>;
   recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>): Promise<void>;
-  listAudit(context: TrustedRequestContext, limit?: number): Promise<Array<AuditEventInput & { id: string; createdAt: string }>>;
+  listAudit(context: TrustedRequestContext, options?: number | AuditListOptions): Promise<Array<AuditEventInput & { id: string; createdAt: string }>>;
 };
 
 const now = () => new Date().toISOString();
@@ -329,8 +348,10 @@ class MemoryCommerceRepository implements CommerceRepository {
   async updateTransactionStatus(context: TrustedRequestContext, transactionId: string, status: string) { const transaction = this.state(context).transactions.get(transactionId); if (transaction) transaction.status = status; }
   async markTransactionPaidOnce(context: TrustedRequestContext, transactionId: string) { const transaction = this.state(context).transactions.get(transactionId); if (!transaction || transaction.status === "PAID") return false; transaction.status = "PAID"; return true; }
   async findTransactionByProviderOrder(context: TrustedRequestContext, providerOrderId: string) { return [...this.state(context).transactions.values()].find((transaction) => transaction.providerOrderId === providerOrderId) || null; }
+  async listTransactions(context: TrustedRequestContext) { return [...this.state(context).transactions.values()]; }
   async recordPayment(context: TrustedRequestContext, payment: PaymentLedgerRecord) { this.state(context).payments.set(payment.id, { ...payment }); }
   async updatePayment(context: TrustedRequestContext, paymentId: string, update: Pick<PaymentLedgerRecord, "status" | "providerPaymentId">) { const payment = this.state(context).payments.get(paymentId); if (payment) Object.assign(payment, update); }
+  async listPayments(context: TrustedRequestContext) { return [...this.state(context).payments.entries()].map(([id, payment]) => ({ ...payment, id })); }
   async recordTransactionLines(context: TrustedRequestContext, lines: TransactionLineSnapshot[]) { if (!lines.length) return; this.state(context).transactionLines.set(lines[0].transactionId, lines.map((line) => ({ ...line }))); }
   async listVerifiedTransactionLines(context: TrustedRequestContext) { return [...this.state(context).transactions.values()].filter((transaction) => transaction.status === "PAID").flatMap((transaction) => this.state(context).transactionLines.get(transaction.id) || []); }
   async incrementCustomerAfterVerifiedPayment(context: TrustedRequestContext, customerId: string, amountPaise: number, paidAt = now()) { const customer = await this.getCustomer(context, customerId); if (!customer) return; customer.orderCount += 1; customer.lifetimeValuePaise += amountPaise; customer.lastOrderAt = new Date(paidAt); }
@@ -350,7 +371,27 @@ class MemoryCommerceRepository implements CommerceRepository {
   async recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>) {
     this.state(context).audit.push({ ...event, id: id("audit"), organizationId: context.organizationId, actorType: event.actorType || context.actorType, actorId: event.actorId ?? context.actorId, correlationId: event.correlationId || context.correlationId, createdAt: now() });
   }
-  async listAudit(context: TrustedRequestContext, limit = 100) { return this.state(context).audit.slice(-Math.min(limit, 200)).reverse(); }
+  async listAudit(context: TrustedRequestContext, options: number | AuditListOptions = 100) {
+    const config = typeof options === "number" ? { limit: options } : options;
+    const metadataMatch = (event: AuditEventInput & { createdAt: string }, key: string, value?: string) => !value || event.entityId === value || event.metadata?.[key] === value;
+    return this.state(context).audit.filter((event) => event.organizationId === context.organizationId
+      && (!config.eventType || event.eventType === config.eventType)
+      && (!config.entityType || event.entityType === config.entityType)
+      && (!config.entityId || event.entityId === config.entityId)
+      && (!config.correlationId || event.correlationId === config.correlationId)
+      && (!config.shoppingSessionId || event.shoppingSessionId === config.shoppingSessionId)
+      && (!config.policyVersionId || event.policyVersionId === config.policyVersionId)
+      && (!config.actorId || event.actorId === config.actorId)
+      && (!config.before || event.createdAt < config.before)
+      && (!config.after || event.createdAt >= config.after)
+      && metadataMatch(event, "transactionId", config.transactionId)
+      && metadataMatch(event, "offerId", config.offerId)
+      && metadataMatch(event, "approvalId", config.approvalId)
+      && metadataMatch(event, "growthPlayId", config.growthPlayId)
+      && (!config.shopDomain || event.metadata?.shopDomain === config.shopDomain || event.metadata?.shopifyShopDomain === config.shopDomain))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+      .slice(0, Math.min(config.limit || 100, 200));
+  }
 }
 
 function productFromRow(row: typeof products.$inferSelect): CanonicalProduct {
@@ -535,11 +576,19 @@ class PostgresCommerceRepository implements CommerceRepository {
     const row = rows[0];
     return row ? { id: row.id, sessionId: row.shoppingSessionId, offerId: row.offerId, policyVersionId: row.policyVersionId, status: row.status, totalPaise: row.totalPaise, currency: row.currency, provider: row.provider, providerOrderId: row.providerOrderId, idempotencyKey: row.idempotencyKey, createdAt: row.createdAt.toISOString() } : null;
   }
+  async listTransactions(context: TrustedRequestContext) {
+    const rows = await getDb().select().from(commerceTransactions).where(eq(commerceTransactions.organizationId, context.organizationId)).orderBy(desc(commerceTransactions.createdAt));
+    return rows.map((row) => ({ id: row.id, sessionId: row.shoppingSessionId, offerId: row.offerId, policyVersionId: row.policyVersionId, status: row.status, totalPaise: row.totalPaise, currency: row.currency, provider: row.provider, providerOrderId: row.providerOrderId, idempotencyKey: row.idempotencyKey, createdAt: row.createdAt.toISOString() }));
+  }
   async recordPayment(context: TrustedRequestContext, payment: PaymentLedgerRecord) {
     await getDb().insert(paymentRecords).values({ id: payment.id, organizationId: context.organizationId, transactionId: payment.transactionId, provider: payment.provider, providerPaymentId: payment.providerPaymentId ?? null, status: payment.status, amountPaise: payment.amountPaise, currency: payment.currency, createdAt: payment.createdAt ? new Date(payment.createdAt) : undefined }).onConflictDoNothing();
   }
   async updatePayment(context: TrustedRequestContext, paymentId: string, update: Pick<PaymentLedgerRecord, "status" | "providerPaymentId">) {
     await getDb().update(paymentRecords).set({ status: update.status, providerPaymentId: update.providerPaymentId ?? null }).where(and(eq(paymentRecords.organizationId, context.organizationId), eq(paymentRecords.id, paymentId)));
+  }
+  async listPayments(context: TrustedRequestContext) {
+    const rows = await getDb().select().from(paymentRecords).where(eq(paymentRecords.organizationId, context.organizationId)).orderBy(desc(paymentRecords.createdAt));
+    return rows.map((row) => ({ id: row.id, transactionId: row.transactionId, provider: row.provider, providerPaymentId: row.providerPaymentId, status: row.status, amountPaise: row.amountPaise, currency: row.currency, createdAt: row.createdAt.toISOString() }));
   }
   async recordTransactionLines(context: TrustedRequestContext, lines: TransactionLineSnapshot[]) {
     if (!lines.length) return;
@@ -585,8 +634,28 @@ class PostgresCommerceRepository implements CommerceRepository {
   async recordAudit(context: TrustedRequestContext, event: Omit<AuditEventInput, "organizationId" | "actorType" | "actorId" | "correlationId"> & Partial<Pick<AuditEventInput, "actorType" | "actorId" | "correlationId">>) {
     await getDb().insert(auditEvents).values({ id: id("audit"), organizationId: context.organizationId, actorType: event.actorType || context.actorType, actorId: event.actorId ?? context.actorId, eventType: event.eventType, shoppingSessionId: event.shoppingSessionId ?? null, policyVersionId: event.policyVersionId ?? null, entityType: event.entityType, entityId: event.entityId, correlationId: event.correlationId || context.correlationId, metadata: event.metadata });
   }
-  async listAudit(context: TrustedRequestContext, limit = 100) {
-    const rows = await getDb().select().from(auditEvents).where(eq(auditEvents.organizationId, context.organizationId)).orderBy(desc(auditEvents.createdAt)).limit(Math.min(limit, 200));
+  async listAudit(context: TrustedRequestContext, options: number | AuditListOptions = 100) {
+    const config = typeof options === "number" ? { limit: options } : options;
+    const filters = [eq(auditEvents.organizationId, context.organizationId)];
+    if (config.eventType) filters.push(eq(auditEvents.eventType, config.eventType));
+    if (config.entityType) filters.push(eq(auditEvents.entityType, config.entityType));
+    if (config.entityId) filters.push(eq(auditEvents.entityId, config.entityId));
+    if (config.correlationId) filters.push(eq(auditEvents.correlationId, config.correlationId));
+    if (config.shoppingSessionId) filters.push(eq(auditEvents.shoppingSessionId, config.shoppingSessionId));
+    if (config.policyVersionId) filters.push(eq(auditEvents.policyVersionId, config.policyVersionId));
+    if (config.actorId) filters.push(eq(auditEvents.actorId, config.actorId));
+    if (config.before) filters.push(lt(auditEvents.createdAt, new Date(config.before)));
+    if (config.after) filters.push(sql`${auditEvents.createdAt} >= ${new Date(config.after)}`);
+    const metadataIdentity = (key: string, value?: string) => value ? or(eq(auditEvents.entityId, value), sql`${auditEvents.metadata}->>${key} = ${value}`) : undefined;
+    for (const match of [["transactionId", config.transactionId], ["offerId", config.offerId], ["approvalId", config.approvalId], ["growthPlayId", config.growthPlayId]] as const) {
+      const condition = metadataIdentity(match[0], match[1]);
+      if (condition) filters.push(condition);
+    }
+    if (config.shopDomain) {
+      const shopCondition = or(sql`${auditEvents.metadata}->>'shopDomain' = ${config.shopDomain}`, sql`${auditEvents.metadata}->>'shopifyShopDomain' = ${config.shopDomain}`);
+      if (shopCondition) filters.push(shopCondition);
+    }
+    const rows = await getDb().select().from(auditEvents).where(and(...filters)).orderBy(desc(auditEvents.createdAt), desc(auditEvents.id)).limit(Math.min(config.limit || 100, 200));
     return rows.map((row) => ({ id: row.id, organizationId: row.organizationId, actorType: row.actorType as AuditEventInput["actorType"], actorId: row.actorId, eventType: row.eventType as AuditEventInput["eventType"], shoppingSessionId: row.shoppingSessionId, policyVersionId: row.policyVersionId, entityType: row.entityType, entityId: row.entityId, correlationId: row.correlationId, metadata: row.metadata, createdAt: row.createdAt.toISOString() }));
   }
 }

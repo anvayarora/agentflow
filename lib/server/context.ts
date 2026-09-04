@@ -1,7 +1,11 @@
 import type { AuditEventInput } from "../domain/audit";
 import { MerchantAuthError, type MerchantRole } from "./auth";
 
-export const demoOrganizationId = () => (typeof process === "undefined" ? undefined : process.env.AGENTFLOW_DEMO_ORGANIZATION_ID) || "org_haven_home_demo";
+export const demoOrganizationId = () => {
+  const configured = typeof process === "undefined" ? undefined : process.env.AGENTFLOW_DEMO_ORGANIZATION_ID;
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return configured || "";
+  return configured || "org_haven_home_demo";
+};
 
 export type TrustedRequestContext = {
   organizationId: string;
@@ -33,10 +37,10 @@ export function getTrustedRequestContext(request?: Request): TrustedRequestConte
   if (request && process.env.NODE_ENV === "production") {
     // Synchronous callers receive an unauthenticated context; protected routes
     // use requireMerchantContext() for the async server-side membership lookup.
-    return { organizationId: demoOrganizationId() || "org_haven_home_demo", actorType: "system", actorId, authenticated: false, correlationId };
+    return { organizationId: demoOrganizationId(), actorType: "system", actorId, authenticated: false, correlationId };
   }
   return {
-    organizationId: demoOrganizationId() || "org_haven_home_demo",
+    organizationId: demoOrganizationId(),
     actorType: actorId === "demo-merchant" ? "system" : "merchant",
     actorId,
     authenticated: !request || actorId !== "demo-merchant",

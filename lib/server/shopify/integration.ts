@@ -6,7 +6,6 @@ import type { TrustedRequestContext } from "../context";
 import { configuredShopDomain, normalizeShopDomain, type ShopifyCapabilitySnapshot } from "./ucp";
 
 export const SHOPIFY_PROVIDER = "SHOPIFY";
-const integrationId = "integration_shopify_haven_home";
 
 type EncryptedShopifyToken = {
   version: 1;
@@ -27,14 +26,16 @@ export type ShopifyIntegrationRecord = {
 };
 
 const now = () => new Date().toISOString();
+const integrationIdFor = (organizationId: string, shopDomain: string) => `integration_shopify_${createHash("sha256").update(`${organizationId}:${shopDomain}`).digest("hex").slice(0, 24)}`;
 
 function baseConfiguration(shopDomain: string) {
   return { shopDomain, source: "shopify_ucp", appProxyPath: "/apps/agentflow", ucpEndpoint: `https://${shopDomain}/api/ucp/mcp` };
 }
 
-function tokenKey() {
-  const secret = typeof process === "undefined" ? undefined : process.env.SHOPIFY_API_SECRET;
-  if (!secret) throw new Error("SHOPIFY_API_SECRET is required to protect the Shopify Admin token.");
+function tokenKey(source?: string) {
+  const environment = typeof process === "undefined" ? undefined : process.env;
+  const secret = source || environment?.DATA_ENCRYPTION_KEY || (environment?.NODE_ENV === "production" ? undefined : environment?.SHOPIFY_API_SECRET);
+  if (!secret) throw new Error("DATA_ENCRYPTION_KEY is required to protect the Shopify Admin token.");
   return createHash("sha256").update(secret).digest();
 }
 
@@ -45,32 +46,51 @@ function encryptToken(token: string): EncryptedShopifyToken {
   return { version: 1, iv: iv.toString("base64url"), tag: cipher.getAuthTag().toString("base64url"), ciphertext: ciphertext.toString("base64url") };
 }
 
-function decryptToken(value: unknown): string | null {
+function decryptToken(value: unknown): { token: string; legacy: boolean } | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const sealed = value as Partial<EncryptedShopifyToken>;
   if (sealed.version !== 1 || typeof sealed.iv !== "string" || typeof sealed.tag !== "string" || typeof sealed.ciphertext !== "string") return null;
-  try {
-    const decipher = createDecipheriv("aes-256-gcm", tokenKey(), Buffer.from(sealed.iv, "base64url"));
-    decipher.setAuthTag(Buffer.from(sealed.tag, "base64url"));
-    return Buffer.concat([decipher.update(Buffer.from(sealed.ciphertext, "base64url")), decipher.final()]).toString("utf8");
-  } catch {
-    return null;
+  const environment = typeof process === "undefined" ? undefined : process.env;
+  if (environment?.NODE_ENV === "production" && !environment.DATA_ENCRYPTION_KEY) return null;
+  const keys = environment?.DATA_ENCRYPTION_KEY ? [{ value: environment.DATA_ENCRYPTION_KEY, legacy: false }] : [];
+  if (environment?.SHOPIFY_API_SECRET) keys.push({ value: environment.SHOPIFY_API_SECRET, legacy: true });
+  for (const key of keys) {
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", tokenKey(key.value), Buffer.from(sealed.iv, "base64url"));
+      decipher.setAuthTag(Buffer.from(sealed.tag, "base64url"));
+      return { token: Buffer.concat([decipher.update(Buffer.from(sealed.ciphertext, "base64url")), decipher.final()]).toString("utf8"), legacy: key.legacy };
+    } catch {
+      // Try the next key so a legacy token can be migrated without downtime.
+    }
   }
+  return null;
 }
 
 export async function resolveShopifyIntegration(shopDomain: string, organizationId: string): Promise<ShopifyIntegrationRecord | null> {
   const normalized = normalizeShopDomain(shopDomain);
   if (normalized !== configuredShopDomain()) return null;
-  if (!isDatabaseConfigured()) return { id: integrationId, organizationId, provider: SHOPIFY_PROVIDER, shopDomain: normalized, status: "DISCOVERED", capabilities: null };
-  const rows = await getDb().select().from(integrations).where(and(eq(integrations.organizationId, organizationId), eq(integrations.provider, SHOPIFY_PROVIDER))).limit(1);
-  const row = rows[0];
+  const stableId = integrationIdFor(organizationId, normalized);
+  if (!isDatabaseConfigured()) return { id: stableId, organizationId, provider: SHOPIFY_PROVIDER, shopDomain: normalized, status: "DISCOVERED", capabilities: null };
+  const rows = await getDb().select().from(integrations).where(and(eq(integrations.organizationId, organizationId), eq(integrations.provider, SHOPIFY_PROVIDER)));
+  const row = rows.find((candidate) => candidate.configuration && (candidate.configuration as Record<string, unknown>).shopDomain === normalized);
   if (row) {
     const configuration = row.configuration || {};
     if (configuration.shopDomain !== normalized) return null;
     return { id: row.id, organizationId: row.organizationId, provider: SHOPIFY_PROVIDER, shopDomain: normalized, status: row.status, capabilities: (configuration.capabilities as ShopifyCapabilitySnapshot | null) || null, installedAt: row.createdAt.toISOString(), lastVerifiedAt: typeof configuration.lastVerifiedAt === "string" ? configuration.lastVerifiedAt : undefined };
   }
-  await getDb().insert(integrations).values({ id: integrationId, organizationId, provider: SHOPIFY_PROVIDER, status: "DISCOVERED", configuration: baseConfiguration(normalized) }).onConflictDoNothing();
-  return { id: integrationId, organizationId, provider: SHOPIFY_PROVIDER, shopDomain: normalized, status: "DISCOVERED", capabilities: null };
+  await getDb().insert(integrations).values({ id: stableId, organizationId, provider: SHOPIFY_PROVIDER, status: "DISCOVERED", configuration: baseConfiguration(normalized) }).onConflictDoNothing();
+  return { id: stableId, organizationId, provider: SHOPIFY_PROVIDER, shopDomain: normalized, status: "DISCOVERED", capabilities: null };
+}
+
+/** Resolve tenant ownership from a verified shop domain, never from a client id. */
+export async function resolveShopifyIntegrationByDomain(shopDomain: string): Promise<ShopifyIntegrationRecord | null> {
+  const normalized = normalizeShopDomain(shopDomain);
+  if (!isDatabaseConfigured()) return null;
+  const rows = await getDb().select().from(integrations).where(eq(integrations.provider, SHOPIFY_PROVIDER));
+  const row = rows.find((candidate) => candidate.configuration && (candidate.configuration as Record<string, unknown>).shopDomain === normalized);
+  if (!row) return null;
+  const configuration = row.configuration || {};
+  return { id: row.id, organizationId: row.organizationId, provider: SHOPIFY_PROVIDER, shopDomain: normalized, status: row.status, capabilities: (configuration.capabilities as ShopifyCapabilitySnapshot | null) || null, installedAt: row.createdAt.toISOString(), lastVerifiedAt: typeof configuration.lastVerifiedAt === "string" ? configuration.lastVerifiedAt : undefined };
 }
 
 export async function persistShopifyCapabilitySnapshot(context: TrustedRequestContext, snapshot: ShopifyCapabilitySnapshot) {
@@ -110,7 +130,12 @@ export async function getStoredShopifyAdminAccessToken(organizationId: string, s
   const normalized = normalizeShopDomain(shopDomain);
   if (normalized !== configuredShopDomain()) return null;
   const rows = await getDb().select().from(integrations).where(and(eq(integrations.organizationId, organizationId), eq(integrations.provider, SHOPIFY_PROVIDER))).limit(1);
-  return decryptToken(rows[0]?.configuration?.shopifyAdminAccessTokenEncrypted);
+  const decrypted = decryptToken(rows[0]?.configuration?.shopifyAdminAccessTokenEncrypted);
+  if (decrypted?.legacy && process.env.DATA_ENCRYPTION_KEY && rows[0]) {
+    const configuration = { ...(rows[0].configuration || {}), shopifyAdminAccessTokenEncrypted: encryptToken(decrypted.token), encryptedAt: now() };
+    await getDb().update(integrations).set({ configuration, updatedAt: new Date() }).where(and(eq(integrations.organizationId, organizationId), eq(integrations.id, rows[0].id)));
+  }
+  return decrypted?.token || null;
 }
 
 export async function getStoredShopifyIntegrationConfiguration(organizationId: string, shopDomain = configuredShopDomain()) {

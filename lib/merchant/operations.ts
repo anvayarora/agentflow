@@ -2,7 +2,7 @@ import { getCommerceRepository } from "../server/repositories/commerce";
 import { assertMerchantContext, type TrustedRequestContext } from "../server/context";
 import { getRuntimeStore, runtimeKinds, type RuntimeRecord } from "../server/runtime/store";
 import type { ApprovalPayload, OfferPayload } from "../commerce/offer-service";
-import type { PaymentPayload, TransactionPayload } from "../commerce/checkout-service";
+import type { TransactionPayload } from "../commerce/checkout-service";
 import { getGrowthRepository } from "../server/repositories/growth";
 import { runRedTeamSuite, type RedTeamCheck } from "../security/red-team";
 
@@ -86,8 +86,9 @@ export async function getApprovalQueueDetail(context: TrustedRequestContext, app
 export async function listTransactionOperations(context: TrustedRequestContext) {
   assertMerchantContext(context);
   const store = getRuntimeStore();
-  const transactions = await store.list<TransactionPayload>(context, runtimeKinds.transaction, 200);
-  const payments = await store.list<PaymentPayload>(context, runtimeKinds.payment, 200);
+  const [ledgerTransactions, ledgerPayments] = await Promise.all([getCommerceRepository().listTransactions(context), getCommerceRepository().listPayments(context)]);
+  const transactions = ledgerTransactions.map((transaction) => ({ id: transaction.id, createdAt: transaction.createdAt || new Date(0).toISOString(), payload: { sessionId: transaction.sessionId, offerId: transaction.offerId || "", policyVersionId: transaction.policyVersionId, amountPaise: transaction.totalPaise, currency: transaction.currency, provider: transaction.provider || "unknown", providerOrderId: transaction.providerOrderId || undefined, idempotencyKey: transaction.idempotencyKey || "", status: transaction.status as TransactionPayload["status"] } satisfies Pick<TransactionPayload, "sessionId" | "offerId" | "policyVersionId" | "amountPaise" | "currency" | "provider" | "providerOrderId" | "idempotencyKey" | "status"> }));
+  const payments = ledgerPayments.map((payment) => ({ id: payment.id, payload: { transactionId: payment.transactionId, status: payment.status, providerPaymentId: payment.providerPaymentId || undefined } }));
   const offers = await store.list<OfferPayload>(context, runtimeKinds.offer, 200);
   const attributions = await getGrowthRepository().listAttributions(context);
   const auditEvents = await getCommerceRepository().listAudit(context, 200);
@@ -124,24 +125,25 @@ export async function getTransactionOperation(context: TrustedRequestContext, tr
   return { ...row, audit };
 }
 
-export type AuditFilters = { correlationId?: string; entityId?: string; transactionId?: string; sessionId?: string; offerId?: string; approvalId?: string; growthPlayId?: string; shopDomain?: string; eventType?: string; actorId?: string; limit?: number };
+export type AuditFilters = { correlationId?: string; entityId?: string; transactionId?: string; sessionId?: string; offerId?: string; approvalId?: string; growthPlayId?: string; shopDomain?: string; eventType?: string; actorId?: string; before?: string; limit?: number };
 
 export async function queryAuditTrail(context: TrustedRequestContext, filters: AuditFilters = {}) {
   assertMerchantContext(context);
-  const events = await getCommerceRepository().listAudit(context, Math.min(filters.limit || 200, 200));
-  return events.filter((event) => {
-    const metadata = event.metadata || {};
-    return (!filters.correlationId || event.correlationId === filters.correlationId)
-      && (!filters.entityId || event.entityId === filters.entityId)
-      && (!filters.transactionId || event.entityId === filters.transactionId || metadata.transactionId === filters.transactionId)
-      && (!filters.sessionId || event.shoppingSessionId === filters.sessionId)
-      && (!filters.offerId || event.entityId === filters.offerId || metadata.offerId === filters.offerId)
-      && (!filters.approvalId || event.entityId === filters.approvalId || metadata.approvalId === filters.approvalId)
-      && (!filters.growthPlayId || event.entityId === filters.growthPlayId || metadata.growthPlayId === filters.growthPlayId)
-      && (!filters.shopDomain || metadata.shopDomain === filters.shopDomain || metadata.shopifyShopDomain === filters.shopDomain)
-      && (!filters.eventType || event.eventType === filters.eventType)
-      && (!filters.actorId || event.actorId === filters.actorId);
-  }).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((event) => ({ ...event, explanation: explainAuditEvent(event.eventType, event.metadata) }));
+  const events = await getCommerceRepository().listAudit(context, {
+    limit: Math.min(filters.limit || 200, 200),
+    before: filters.before,
+    eventType: filters.eventType,
+    entityId: filters.entityId,
+    correlationId: filters.correlationId,
+    shoppingSessionId: filters.sessionId,
+    actorId: filters.actorId,
+    transactionId: filters.transactionId,
+    offerId: filters.offerId,
+    approvalId: filters.approvalId,
+    growthPlayId: filters.growthPlayId,
+    shopDomain: filters.shopDomain,
+  });
+  return events.map((event) => ({ ...event, explanation: explainAuditEvent(event.eventType, event.metadata) }));
 }
 
 function explainAuditEvent(eventType: string, metadata: Record<string, unknown>) {

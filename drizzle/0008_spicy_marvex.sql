@@ -1,0 +1,6 @@
+ALTER TABLE "approval_requests" ADD CONSTRAINT "approval_requests_status_check" CHECK ("approval_requests"."status" in ('PENDING', 'APPROVED', 'COUNTERED', 'REJECTED', 'EXPIRED'));--> statement-breakpoint
+ALTER TABLE "checkout_reservations" ADD CONSTRAINT "checkout_reservations_status_check" CHECK ("checkout_reservations"."status" in ('CREATING', 'CREATED', 'PAID', 'FAILED'));--> statement-breakpoint
+ALTER TABLE "commerce_transactions" ADD CONSTRAINT "commerce_transactions_status_check" CHECK ("commerce_transactions"."status" in ('CREATED', 'PAID', 'FAILED'));--> statement-breakpoint
+ALTER TABLE "offers" ADD CONSTRAINT "offers_outcome_check" CHECK ("offers"."outcome" in ('ALLOW', 'COUNTER', 'ESCALATE', 'DENY'));--> statement-breakpoint
+ALTER TABLE "payment_records" ADD CONSTRAINT "payment_records_status_check" CHECK ("payment_records"."status" in ('CREATED', 'AUTHORIZED', 'PAID', 'FAILED', 'REFUNDED'));--> statement-breakpoint
+ALTER TABLE "policy_versions" ADD CONSTRAINT "policy_versions_status_check" CHECK ("policy_versions"."status" in ('DRAFT', 'PUBLISHED', 'ARCHIVED'));

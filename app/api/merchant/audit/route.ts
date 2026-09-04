@@ -16,6 +16,7 @@ export async function GET(request: Request) {
       shopDomain: params.get("shopDomain") || undefined,
       eventType: params.get("eventType") || undefined,
       actorId: params.get("actorId") || undefined,
+      before: params.get("before") || undefined,
       limit: Number(params.get("limit") || 200),
     };
     const auth = await merchantContextOrResponse(request, "VIEWER");

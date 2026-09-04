@@ -31,6 +31,13 @@ const bps = (percentage: number) => Math.round(percentage * 100);
 
 const rule = (input: PolicyRule): PolicyRule => input;
 
+function defaultOrganizationId() {
+  const configured = typeof process === "undefined" ? undefined : process.env.AGENTFLOW_DEMO_ORGANIZATION_ID;
+  if (configured) return configured;
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") throw new Error("An organizationId is required when compiling policy in production.");
+  return "org_haven_home_demo";
+}
+
 function clarificationQuestions(prompt: string) {
   const questions: string[] = [];
   if (/old inventory|slow[-\s]?moving|ageing|aging/i.test(prompt) && !/(?:days?|weeks?|months?)/i.test(prompt)) questions.push("How many days should an item be considered slow-moving or old inventory?");
@@ -47,7 +54,7 @@ export function compilePolicyProposal(prompt: string, options?: {
   source?: "nim" | "demo-fallback";
   model?: string;
 }) {
-  const organizationId = options?.organizationId ?? "org_haven_home_demo";
+  const organizationId = options?.organizationId ?? defaultOrganizationId();
   const policyId = options?.policyId ?? "policy-haven-home-commerce";
   const standard = readPercent(prompt, /standard(?:\s+customers?)?.{0,50}?([0-9]{1,2}(?:\.[0-9]+)?)\s*%/i, 10);
   const repeat = readPercent(prompt, /repeat(?:\s+customers?)?.{0,50}?([0-9]{1,2}(?:\.[0-9]+)?)\s*%/i, 15);

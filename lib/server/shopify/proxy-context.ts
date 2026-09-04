@@ -1,6 +1,6 @@
 import { getTrustedRequestContext, type TrustedRequestContext } from "../context";
 import { getCommerceRepository } from "../repositories/commerce";
-import { resolveShopifyIntegration } from "./integration";
+import { resolveShopifyIntegration, resolveShopifyIntegrationByDomain } from "./integration";
 import { ShopifyProxyError, verifyShopifyProxyRequest, type VerifiedShopifyProxyRequest } from "./proxy";
 
 export async function getShopifyProxyContext(request: Request) {
@@ -12,7 +12,10 @@ export async function getShopifyProxyContext(request: Request) {
     throw new ShopifyProxyError("Shopify App Proxy request could not be verified.");
   }
   const base = getTrustedRequestContext(request);
-  const integration = await resolveShopifyIntegration(verified.shopDomain, base.organizationId);
+  // The signed Shopify shop domain is the tenancy selector. In PostgreSQL the
+  // integration row resolves its owning organization; the demo fallback is
+  // only used when no database is configured for local tests.
+  const integration = await resolveShopifyIntegrationByDomain(verified.shopDomain) || await resolveShopifyIntegration(verified.shopDomain, base.organizationId);
   if (!integration) throw new ShopifyProxyError("This Shopify store is not linked to an AgentFlow organization.", "PROXY_TENANT_NOT_LINKED");
   const context: TrustedRequestContext = {
     organizationId: integration.organizationId,
