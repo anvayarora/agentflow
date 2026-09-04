@@ -10,7 +10,8 @@ import { DEFAULT_SALESPERSON_PROFILES } from "./repositories/salesperson";
 /** Destructive only in the sense that it intentionally refreshes demo fixtures. */
 export async function seedDemoDatabase() {
   if (!isDatabaseConfigured()) throw new Error("DATABASE_URL is required to seed AgentFlow PostgreSQL state.");
-  const organizationId = demoOrganizationId() || "org_haven_home_demo";
+  if (process.env.NODE_ENV === "production") throw new Error("Demo seed is disabled in production; use db:bootstrap:production.");
+  const organizationId = demoOrganizationId();
   const policyId = "policy-haven-home-commerce";
   const proposal = compileDemoPolicyProposal("Standard customers can receive up to 10%. Repeat customers can receive up to 15%. Never go below 25% gross margin. Do not discount products below 10 units in stock. Orders above ₹50,000 require merchant approval.", { organizationId, policyId, version: 1 });
   const policy = { ...proposal.policy, status: "PUBLISHED" as const };
@@ -52,7 +53,8 @@ export async function seedDemoDatabase() {
  */
 export async function bootstrapProductionDatabase() {
   if (!isDatabaseConfigured()) throw new Error("DATABASE_URL is required to bootstrap AgentFlow PostgreSQL state.");
-  const organizationId = demoOrganizationId() || "org_haven_home_demo";
+  const organizationId = process.env.AGENTFLOW_MERCHANT_ORGANIZATION_ID || demoOrganizationId();
+  if (!organizationId) throw new Error("AGENTFLOW_DEMO_ORGANIZATION_ID or a trusted merchant organization is required for production bootstrap.");
   const db = getDb();
   const existing = await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, organizationId)).limit(1);
   if (existing.length > 0) return { organizationId, created: false };

@@ -3,9 +3,9 @@ import { getDb, isDatabaseConfigured } from "../../db";
 import { rateLimitBuckets } from "../../db/schema";
 import type { TrustedRequestContext } from "./context";
 
-export type RateLimitClass = "STORE_CHAT" | "VOICE_STT" | "VOICE_TTS" | "VOICE_PREVIEW" | "OFFER_REQUEST" | "POLICY_COMPILE" | "POLICY_SIMULATION" | "CATALOG_IMPORT" | "RED_TEAM" | "CHECKOUT";
+export type RateLimitClass = "STORE_CHAT" | "VOICE_STT" | "VOICE_TTS" | "VOICE_PREVIEW" | "OFFER_REQUEST" | "POLICY_COMPILE" | "POLICY_SIMULATION" | "CATALOG_IMPORT" | "RED_TEAM" | "CHECKOUT" | "PAYMENT_RECONCILIATION";
 const limits: Record<RateLimitClass, { max: number; windowMs: number }> = {
-  STORE_CHAT: { max: 30, windowMs: 60_000 }, VOICE_STT: { max: 12, windowMs: 60_000 }, VOICE_TTS: { max: 20, windowMs: 60_000 }, VOICE_PREVIEW: { max: 5, windowMs: 60_000 }, OFFER_REQUEST: { max: 8, windowMs: 60_000 }, POLICY_COMPILE: { max: 10, windowMs: 60_000 }, POLICY_SIMULATION: { max: 10, windowMs: 60_000 }, CATALOG_IMPORT: { max: 3, windowMs: 60_000 }, RED_TEAM: { max: 2, windowMs: 60_000 }, CHECKOUT: { max: 8, windowMs: 60_000 },
+  STORE_CHAT: { max: 30, windowMs: 60_000 }, VOICE_STT: { max: 12, windowMs: 60_000 }, VOICE_TTS: { max: 20, windowMs: 60_000 }, VOICE_PREVIEW: { max: 5, windowMs: 60_000 }, OFFER_REQUEST: { max: 8, windowMs: 60_000 }, POLICY_COMPILE: { max: 10, windowMs: 60_000 }, POLICY_SIMULATION: { max: 10, windowMs: 60_000 }, CATALOG_IMPORT: { max: 3, windowMs: 60_000 }, RED_TEAM: { max: 2, windowMs: 60_000 }, CHECKOUT: { max: 8, windowMs: 60_000 }, PAYMENT_RECONCILIATION: { max: 10, windowMs: 60_000 },
 };
 const memory = new Map<string, { startedAt: number; count: number }>();
 

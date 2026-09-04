@@ -249,3 +249,27 @@ export async function reconcilePaymentWebhook(context: TrustedRequestContext, in
   await repository.recordAudit(context, { eventType: "PAYMENT_WEBHOOK_RECONCILED", entityType: "transaction", entityId: transaction.id, shoppingSessionId: transaction.sessionId, policyVersionId: transaction.policyVersionId, metadata: { providerOrderId: input.orderId, providerPaymentId: input.paymentId, providerStatus: providerPayment.status, newlyPaid } });
   return { status: "PAID", transactionId: transaction.id, changed: newlyPaid };
 }
+
+/** Tenant-scoped, idempotent operator reconciliation job for pending payments. */
+export async function reconcilePendingPayments(context: TrustedRequestContext, idempotencyKey: string) {
+  const store = getRuntimeStore();
+  const runId = `reconciliation-${idempotencyKey}`;
+  const previous = await store.get<{ idempotencyKey: string; processed: number; reconciled: number; skipped: number }>(context, runtimeKinds.reconciliation, runId);
+  if (previous) return previous.payload;
+  const transactions = await store.list<TransactionPayload>(context, runtimeKinds.transaction, 500);
+  const payments = await store.list<PaymentPayload>(context, runtimeKinds.payment, 500);
+  let reconciled = 0;
+  let skipped = 0;
+  for (const transaction of transactions.filter((item) => item.payload.status === "CREATED" && item.payload.providerOrderId)) {
+    const payment = payments.find((item) => item.payload.transactionId === transaction.id && item.payload.providerPaymentId);
+    if (!payment?.payload.providerPaymentId) { skipped += 1; continue; }
+    try {
+      const result = await reconcilePaymentWebhook(context, { event: "payment.captured", orderId: transaction.payload.providerOrderId, paymentId: payment.payload.providerPaymentId, amountPaise: transaction.payload.amountPaise, currency: transaction.payload.currency });
+      if (result.status === "PAID") reconciled += 1; else skipped += 1;
+    } catch { skipped += 1; }
+  }
+  const summary = { idempotencyKey, processed: transactions.length, reconciled, skipped };
+  await store.put(context, { id: runId, kind: runtimeKinds.reconciliation, status: "COMPLETED", payload: summary, expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+  await getCommerceRepository().recordAudit(context, { eventType: "PAYMENT_RECONCILIATION_RUN", entityType: "payment_reconciliation", entityId: runId, metadata: summary });
+  return summary;
+}

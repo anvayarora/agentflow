@@ -12,34 +12,33 @@ AgentFlow server + React surfaces
 PostgreSQL (DATABASE_URL)
 ```
 
-The current PostgreSQL service is Aiven `agentflow-postgres` on the free `free-1-1gb` plan in Bangalore (`do-blr`). Vercel Production and Preview use the encrypted `DATABASE_URL` secret for this service. The URI is never committed or documented here.
+The configured PostgreSQL target is Aiven `agentflow-postgres` on the free `free-1-1gb` plan in Bangalore (`do-blr`). Vercel uses the encrypted `DATABASE_URL` secret for this service. A deployment is not considered database-ready until the endpoint resolves, migrations complete, and a seeded record can be read across independent requests. The URI is never committed or documented here.
 
 ## Environments
 
-- Local: `npm run dev`; without `DATABASE_URL`, a deterministic seeded memory repository keeps the demo usable.
-- Preview: Vercel Node runtime with PostgreSQL environment variables configured. The deployment must run the migration and seed process against the selected database before testing.
+- Local: `npm run dev`; without `DATABASE_URL`, a deterministic seeded memory repository keeps development usable only.
+- Preview: Vercel Node runtime with PostgreSQL environment variables configured. Run `npm run db:migrate` and, only for a disposable demo database, `npm run db:seed:demo` before testing.
 - Production: the live `agentflow` Git integration currently auto-promotes pushes to `main` to its Production target. The current canonical alias is `https://agentflow-beige-eight.vercel.app`. Keep promotion gated operationally until red-team/E2E verification is complete.
 
 ## Environment variable names
 
 Names only; values belong in the deployment secret store.
 
+### Required production
+
 ```text
 DATABASE_URL
-AGENTFLOW_DEMO_ORGANIZATION_ID
-AGENTFLOW_DEMO_CUSTOMER_ID
+DATA_ENCRYPTION_KEY
+AGENTFLOW_MERCHANT_ORGANIZATION_ID
+AGENTFLOW_MERCHANT_ACTOR_ID
+AGENTFLOW_MERCHANT_ROLE
+AGENTFLOW_SESSION_SECRET
+AGENTFLOW_MERCHANT_LOGIN_TOKEN
 NIM_API_KEY
 NIM_MODEL_ID
 NIM_BASE_URL
-SARVAM_API_KEY
-SARVAM_BASE_URL
-SARVAM_STT_MODEL
-SARVAM_TTS_MODEL
-SARVAM_TIMEOUT_MS
 SHOPIFY_STORE_DOMAIN
 SHOPIFY_API_VERSION
-SHOPIFY_STOREFRONT_ACCESS_TOKEN
-SHOPIFY_ADMIN_ACCESS_TOKEN
 SHOPIFY_API_SECRET
 SHOPIFY_UCP_PROFILE_URL
 AGENTFLOW_PUBLIC_URL
@@ -50,15 +49,33 @@ PAYMENT_PROVIDER
 CATALOG_PROVIDER
 LLM_PROVIDER
 DEMO_MODE
+
+### Optional production
+
+SARVAM_API_KEY
+SARVAM_BASE_URL
+SARVAM_STT_MODEL
+SARVAM_TTS_MODEL
+SARVAM_TIMEOUT_MS
+SHOPIFY_STOREFRONT_ACCESS_TOKEN
+SHOPIFY_ADMIN_ACCESS_TOKEN
 MAX_OFFER_REQUESTS_PER_SESSION
 OFFER_COOLDOWN_SECONDS
+GROWTH_LOW_STOCK_THRESHOLD
+GROWTH_HIGH_STOCK_THRESHOLD
+GROWTH_COMPLEMENTARY_CATEGORIES
+
+### Development / test only
+
+AGENTFLOW_DEMO_ORGANIZATION_ID
+AGENTFLOW_DEMO_CUSTOMER_ID
 ```
 
 ## Deployment process
 
 1. Install from the committed lockfile.
 2. Run `npm run db:generate` only when the schema changes; commit the resulting migration.
-3. Run `npm run db:migrate` and `npm run db:seed` against the Aiven Preview PostgreSQL database.
+3. Run `npm run db:migrate` against the configured PostgreSQL database. Use `npm run db:seed:demo` only for a disposable demo database; use `npm run db:bootstrap:production` for an existing production database.
 4. Run `npm run build`, `npm run lint`, and `npm run test:backend`.
 5. Push the reviewed commit to `main` in the private GitHub repository.
 6. Verify the Vercel deployment target, browser console, failed network calls, and runtime logs.
@@ -99,8 +116,8 @@ Keep published policy versions immutable. Roll back an application release throu
 
 - Catalogue: Shopify UCP is the buyer-facing source when verified; the canonical Haven Home seed remains the safe local fallback and private-cost join.
 - Payments: existing server-authorized Test/mock path; no live payment mode.
-- LLM: NVIDIA NIM proposes typed Policy IR drafts when `NIM_API_KEY` is present; Setup Copilot remains unavailable until the provider is configured.
-- Storefront AI: NVIDIA Nemotron Ultra is the reasoning provider; the shopper agent
+- LLM: NVIDIA NIM proposes typed Policy IR drafts when `NIM_API_KEY` is present; the model is configured server-side and there is no silent fallback.
+- Storefront AI: NVIDIA Nemotron 3.5 Lightning is the reasoning provider; the shopper agent
   has no provider fallback and receives compact public product projections only.
 - Shopify: Haven Home development store target, UCP 2026-04-08 catalog/cart connector, signed App Proxy contract, and Theme App Extension source under `shopify/`.
 - WooCommerce: not connected.

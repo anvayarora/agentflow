@@ -25,7 +25,9 @@ PostgreSQL is the persistent store when `DATABASE_URL` is configured:
 ```bash
 npm run db:generate
 npm run db:migrate
-npm run db:seed
+npm run db:seed:demo
+# or, for an existing production database:
+npm run db:bootstrap:production
 ```
 
 When no database is configured, local Preview uses the same domain IR and evaluator against a deterministic seeded in-memory repository. This is a development fallback only; deployed persistent state requires PostgreSQL.
@@ -55,4 +57,4 @@ AgentFlow server → UCP catalog/cart + deterministic policy runtime
 
 The server owns Shopify shop tenancy, anonymous session state, and the mapping from a verified Shopify customer ID to a derived AgentFlow customer segment. The browser may send page hints and a session reference, but never policy economics or customer segment claims.
 
-The current bootstrap chat response is intentionally `AGENT_BACKEND_NOT_READY`; it proves the storefront-to-server contract without presenting a canned AI salesperson. NIM orchestration, approvals, payment execution, and the final chat experience remain the next prompt.
+The storefront chat is provider-backed when NIM is configured. If the provider is unavailable, the API returns an explicit `PROVIDER_UNAVAILABLE` state and never presents a mock answer as live AI. Approvals, payment execution, and the final chat experience continue to use the same server-owned policy and commerce runtime.

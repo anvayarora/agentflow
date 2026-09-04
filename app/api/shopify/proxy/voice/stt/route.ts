@@ -13,6 +13,7 @@ export async function POST(request: Request) {
     if (!(file instanceof File)) return Response.json({ error: "An audio file is required." }, { status: 400 });
     const sessionId = typeof form.get("sessionId") === "string" ? String(form.get("sessionId")) : undefined;
     const languageCode = typeof form.get("languageCode") === "string" ? String(form.get("languageCode")) : undefined;
+    const durationValue = typeof form.get("durationSeconds") === "string" ? Number(form.get("durationSeconds")) : undefined;
     const { context, session } = await getBoundShopifySession(request, sessionId);
     const limit = await consumeRateLimit("VOICE_STT", `${context.organizationId}:${session.id}`);
     if (!limit.ok) return rateLimitResponse(limit.retryAfter);
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
       filename: file.name || "voice-turn.webm",
       mimeType: file.type || "audio/webm",
       languageCode,
+      durationSeconds: Number.isFinite(durationValue) ? durationValue : undefined,
     });
     await getCommerceRepository().recordAudit(context, {
       eventType: "VOICE_STT_COMPLETED",

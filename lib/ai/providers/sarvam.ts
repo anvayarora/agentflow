@@ -5,7 +5,9 @@ export const SARVAM_BASE_URL = "https://api.sarvam.ai";
 export const SARVAM_STT_MODEL = "saaras:v3";
 export const SARVAM_TTS_MODEL = "bulbul:v3";
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+const MAX_AUDIO_DURATION_SECONDS = 120;
 const MAX_TTS_CHARS = 2500;
+const ALLOWED_AUDIO_MIME_TYPES = new Set(["audio/wav", "audio/x-wav", "audio/webm", "audio/ogg", "audio/mpeg", "audio/mp4"]);
 
 export class SarvamConfigurationError extends Error { constructor(message = "Sarvam is not configured on the server.") { super(message); this.name = "SarvamConfigurationError"; } }
 export class SarvamProviderError extends Error { statusCode?: number; constructor(message: string, statusCode?: number) { super(message); this.name = "SarvamProviderError"; this.statusCode = statusCode; } }
@@ -27,11 +29,14 @@ async function parseResponse(response: Response) {
 }
 
 export type SarvamTranscription = { transcript: string; languageCode: string | null; requestId: string | null; latencyMs: number };
-export async function transcribeAudio(input: { bytes: Uint8Array; filename?: string; mimeType?: string; languageCode?: string; mode?: "transcribe" | "translate" | "verbatim" | "translit" | "codemix" }): Promise<SarvamTranscription> {
+export async function transcribeAudio(input: { bytes: Uint8Array; filename?: string; mimeType?: string; languageCode?: string; mode?: "transcribe" | "translate" | "verbatim" | "translit" | "codemix"; durationSeconds?: number }): Promise<SarvamTranscription> {
   if (input.bytes.byteLength === 0) throw new SarvamProviderError("Audio payload is empty.");
   if (input.bytes.byteLength > MAX_AUDIO_BYTES) throw new SarvamProviderError("Audio payload exceeds the 8 MB safety limit.");
+  const mimeType = (input.mimeType || "").toLowerCase().split(";", 1)[0];
+  if (!ALLOWED_AUDIO_MIME_TYPES.has(mimeType)) throw new SarvamProviderError("Audio format is not supported.", 415);
+  if (input.durationSeconds !== undefined && (!Number.isFinite(input.durationSeconds) || input.durationSeconds <= 0 || input.durationSeconds > MAX_AUDIO_DURATION_SECONDS)) throw new SarvamProviderError("Audio duration exceeds the 120 second safety limit.", 413);
   const form = new FormData();
-  form.append("file", new Blob([new Uint8Array(input.bytes)], { type: input.mimeType || "audio/wav" }), input.filename || "voice-turn.wav");
+  form.append("file", new Blob([new Uint8Array(input.bytes)], { type: mimeType }), input.filename || "voice-turn.wav");
   form.append("model", process.env.SARVAM_STT_MODEL || SARVAM_STT_MODEL);
   form.append("mode", input.mode || "transcribe");
   form.append("language_code", input.languageCode || "unknown");

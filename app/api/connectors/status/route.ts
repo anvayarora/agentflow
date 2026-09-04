@@ -30,6 +30,7 @@ export async function GET() {
       database.reachable = false;
     }
   }
+  const databaseStatus = !database.configured || !database.reachable ? "PROVIDER_UNAVAILABLE" : database.schemaReady ? "HEALTHY" : "PROVIDER_DEGRADED";
   let shopifyUcp: { status: string; version?: string; endpoint?: string; capabilities?: string[]; tools?: string[]; reason?: string } = { status: "SHOPIFY_UCP_NOT_VERIFIED" };
   try {
     const client = getShopifyUcpClient();
@@ -39,18 +40,26 @@ export async function GET() {
   } catch (error) {
     shopifyUcp.reason = error instanceof ShopifyUcpError ? error.code : "SHOPIFY_UCP_NOT_VERIFIED";
   }
+  const shopifyStatus = shopifyUcp.status === "SHOPIFY_UCP_CONNECTED" ? "HEALTHY" : "PROVIDER_DEGRADED";
+  const nimConfigured = Boolean(values?.NIM_API_KEY);
+  const sarvamConfigured = Boolean(values?.SARVAM_API_KEY);
+  const paymentStatus = razorpayTestConfigured || paymentProvider === "mock" ? "HEALTHY" : "PROVIDER_DEGRADED";
+  const providerStatuses = { database: databaseStatus, shopify: shopifyStatus, nim: nimConfigured ? "HEALTHY" : "PROVIDER_UNAVAILABLE", sarvam: sarvamConfigured ? "HEALTHY" : "PROVIDER_DEGRADED", payments: paymentStatus };
+  const appStatus = database.reachable && nimConfigured && (shopifyUcp.status === "SHOPIFY_UCP_CONNECTED" || paymentProvider === "mock") ? "APP_HEALTHY" : "PROVIDER_DEGRADED";
   return Response.json({
     generatedAt: new Date().toISOString(),
+    status: appStatus,
+    providerStatuses,
     database,
     connectors: {
       nim: {
-        configured: Boolean(values?.NIM_API_KEY),
+        configured: nimConfigured,
         model: values?.NIM_MODEL_ID || NIM_MODEL_ID,
         endpoint: values?.NIM_BASE_URL || "https://integrate.api.nvidia.com/v1",
         mode: values?.NIM_API_KEY ? "live inference" : "provider unavailable",
       },
       sarvam: {
-        configured: Boolean(values?.SARVAM_API_KEY),
+        configured: sarvamConfigured,
         sttModel: values?.SARVAM_STT_MODEL || "saaras:v3",
         ttsModel: values?.SARVAM_TTS_MODEL || "bulbul:v3",
         mode: values?.SARVAM_API_KEY ? "live voice" : "text-only",

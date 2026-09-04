@@ -6,10 +6,26 @@ import { getGrowthRepository } from "../server/repositories/growth";
 import type { TrustedRequestContext } from "../server/context";
 import type { GrowthOpportunity, GrowthSignal, GrowthOpportunityType } from "./types";
 
-const complementaryCategory: Record<string, string> = { Desks: "Lamps", Chairs: "Accessories", Lamps: "Desks", Accessories: "Desks" };
+const defaultComplementaryCategory: Record<string, string> = { Desks: "Lamps", Chairs: "Accessories", Lamps: "Desks", Accessories: "Desks" };
 const now = () => new Date().toISOString();
 const signalId = (type: string, productId: string, relatedProductId?: string) => `signal-${type.toLowerCase()}-${productId}${relatedProductId ? `-${relatedProductId}` : ""}`;
 const opportunityId = (type: string, productId: string, relatedProductId?: string) => `opportunity-${type.toLowerCase()}-${productId}${relatedProductId ? `-${relatedProductId}` : ""}`;
+
+export function growthHeuristics() {
+  const integer = (name: string, fallback: number, min: number, max: number) => {
+    const parsed = Number.parseInt(process.env[name] || "", 10);
+    return Number.isInteger(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+  };
+  const complementaryCategory = { ...defaultComplementaryCategory };
+  const configuredMap = process.env.GROWTH_COMPLEMENTARY_CATEGORIES;
+  if (configuredMap) {
+    for (const pair of configuredMap.split(",")) {
+      const [from, to] = pair.split(":").map((value) => value.trim());
+      if (from && to) complementaryCategory[from] = to;
+    }
+  }
+  return { lowStockThreshold: integer("GROWTH_LOW_STOCK_THRESHOLD", 10, 1, 10_000), highStockThreshold: integer("GROWTH_HIGH_STOCK_THRESHOLD", 100, 1, 1_000_000), complementaryCategory };
+}
 
 function minimumMarginBps(policy: Awaited<ReturnType<ReturnType<typeof getCommerceRepository>["getCurrentPolicy"]>>) {
   return policy?.rules.reduce((floor, rule) => rule.effect.type === "SET_MIN_MARGIN_BPS" ? Math.max(floor, rule.effect.valueBps) : floor, 0) || 0;
@@ -46,6 +62,7 @@ export async function scanGrowth(context: TrustedRequestContext): Promise<Growth
     commerce.listVerifiedTransactionLines(context),
   ]);
   if (!policy) throw new Error("A published policy is required before growth scanning.");
+  const heuristics = growthHeuristics();
   const salesHistory: "OBSERVED" | "INSUFFICIENT_HISTORY" = verifiedLines.length > 0 ? "OBSERVED" : "INSUFFICIENT_HISTORY";
   const floor = minimumMarginBps(policy);
   const signals: GrowthSignal[] = [];
@@ -53,18 +70,18 @@ export async function scanGrowth(context: TrustedRequestContext): Promise<Growth
 
   for (const product of products) {
     await growth.recordInventorySnapshot(context, { productId: product.id, variantId: String(product.attributes.variantId || product.externalId || product.id), quantity: product.stock, observedAt: now(), source: product.source || "catalogue" });
-    if (product.stock < 10) {
-      signals.push(await recordSignal(context, { id: signalId("LOW_STOCK", product.id), type: "LOW_STOCK", productId: product.id, severity: "critical", confidenceBps: 10_000, evidence: { stock: product.stock, threshold: 10, dataQuality: "OBSERVED" } }));
+    if (product.stock < heuristics.lowStockThreshold) {
+      signals.push(await recordSignal(context, { id: signalId("LOW_STOCK", product.id), type: "LOW_STOCK", productId: product.id, severity: "critical", confidenceBps: 10_000, evidence: { stock: product.stock, threshold: heuristics.lowStockThreshold, dataQuality: "OBSERVED" } }));
       opportunities.push(await growth.createOpportunity(context, {
         id: opportunityId("SUPPRESS_DISCOUNT", product.id), type: "SUPPRESS_DISCOUNT", sourceSignalIds: [signalId("LOW_STOCK", product.id)], primaryProductId: product.id, secondaryProductIds: [], proposedAction: { action: "SUPPRESS_DISCOUNT", reason: "low-stock safety" }, estimatedImpact: { kind: "SIMULATED", description: "Protects scarce inventory rather than estimating revenue." }, evidence: { stock: product.stock, dataQuality: "OBSERVED" }, riskFlags: ["low-stock"], policyCompatibility: "COMPATIBLE", scoreBps: 8_000, status: "READY",
       }));
     }
-    if (product.stock >= 100) {
-      signals.push(await recordSignal(context, { id: signalId("HIGH_STOCK", product.id), type: "HIGH_STOCK", productId: product.id, severity: "attention", confidenceBps: 10_000, evidence: { stock: product.stock, threshold: 100, dataQuality: "OBSERVED", salesHistory } }));
+    if (product.stock >= heuristics.highStockThreshold) {
+      signals.push(await recordSignal(context, { id: signalId("HIGH_STOCK", product.id), type: "HIGH_STOCK", productId: product.id, severity: "attention", confidenceBps: 10_000, evidence: { stock: product.stock, threshold: heuristics.highStockThreshold, dataQuality: "OBSERVED", salesHistory } }));
       const margin = product.costPaise === null ? null : calculateGrossMarginBps(product.listPricePaise, product.costPaise);
       const marginHeadroom = margin === null ? 0 : margin - floor;
       if (margin !== null && margin >= floor) {
-        const secondary = products.find((candidate) => candidate.id !== product.id && candidate.category === complementaryCategory[product.category] && candidate.stock > 0);
+        const secondary = products.find((candidate) => candidate.id !== product.id && candidate.category === heuristics.complementaryCategory[product.category] && candidate.stock > 0);
         const session = { id: `growth:${product.id}`, organizationId: context.organizationId, currency: policy.currency, status: "OPEN", cartTotalPaise: 0 };
         const customer = await commerce.getCustomer(context, "customer-haven-repeat");
         if (customer) {

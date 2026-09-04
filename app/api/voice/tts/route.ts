@@ -6,6 +6,7 @@ import { SarvamConfigurationError, SarvamProviderError, synthesizeSpeech } from 
 import { normalizeLanguage, type SalespersonPace } from "../../../../lib/voice/salesperson";
 import { assertSignedShopperBoundary } from "../../../../lib/server/route-guards";
 import { consumeRateLimit, rateLimitResponse } from "../../../../lib/server/rate-limit";
+import { errorResponse, normalizedError } from "../../../../lib/server/errors";
 
 export const runtime = "nodejs";
 const schema = z.object({ text: z.string().trim().min(1).max(4000), salespersonProfileId: z.string().trim().min(1).max(255), sessionId: z.string().trim().min(1).max(255).optional(), language: z.enum(["en-IN", "hi-IN", "hinglish"]).optional(), preview: z.boolean().optional() }).strict();
@@ -26,8 +27,11 @@ export async function POST(request: Request) {
     if (body.preview) await repository.recordAudit(context, { eventType: "SALESPERSON_PREVIEW_PLAYED", entityType: "salesperson_profile", entityId: profile.id, shoppingSessionId: body.sessionId || null, metadata: { salespersonProfileId: profile.id, speakerId: profile.speakerId, language: body.language || "en-IN", cached: speech.cached, characters: speech.characters } });
     return Response.json({ ...speech, salesperson: { id: profile.id, displayName: profile.displayName, speakerId: profile.speakerId } });
   } catch (error) {
-    if (error instanceof SarvamConfigurationError) return Response.json({ error: "Voice output is not enabled for this environment yet.", provider: "SARVAM" }, { status: 503 });
-    if (error instanceof SarvamProviderError) return Response.json({ error: error.message, provider: "SARVAM" }, { status: error.statusCode && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 503 });
-    return Response.json({ error: error instanceof Error ? error.message : "Voice output failed." }, { status: 400 });
+    if (error instanceof SarvamConfigurationError) return Response.json({ ...normalizedError(error, "Voice output is not enabled for this environment yet.", "PROVIDER_UNAVAILABLE"), provider: "SARVAM" }, { status: 503 });
+    if (error instanceof SarvamProviderError) {
+      const status = error.statusCode && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 503;
+      return Response.json({ ...normalizedError(error, "Voice output is temporarily unavailable.", status === 503 ? "PROVIDER_UNAVAILABLE" : "REQUEST_FAILED"), provider: "SARVAM" }, { status });
+    }
+    return errorResponse(error, "Voice output failed.", 400);
   }
 }

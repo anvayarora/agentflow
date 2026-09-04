@@ -3,6 +3,7 @@ import { createCheckout } from "../../../../../lib/commerce/checkout-service";
 import { ShopifyProxyError } from "../../../../../lib/server/shopify/proxy";
 import { getBoundShopifySession } from "../../../../../lib/server/shopify/proxy-context";
 import { consumeRateLimit, rateLimitResponse } from "../../../../../lib/server/rate-limit";
+import { errorResponse } from "../../../../../lib/server/errors";
 
 export const runtime = "nodejs";
 const schema = z.object({ sessionId: z.string().trim().min(1).max(255), idempotencyKey: z.string().trim().min(8).max(255) }).strict();
@@ -16,6 +17,6 @@ export async function POST(request: Request) {
     return Response.json(await createCheckout(context, { sessionId: session.id, idempotencyKey: input.idempotencyKey }));
   } catch (error) {
     const status = error instanceof ShopifyProxyError ? 401 : error instanceof z.ZodError ? 400 : 400;
-    return Response.json({ error: error instanceof Error ? error.message : "Checkout could not be created." }, { status });
+    return errorResponse(error, "Checkout could not be created.", status);
   }
 }

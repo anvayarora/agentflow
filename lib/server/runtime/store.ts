@@ -16,6 +16,7 @@ export const runtimeKinds = {
   shortlist: "SHOPPER_SHORTLIST",
   pageContext: "SHOPPER_PAGE_CONTEXT",
   conversation: "SHOPPER_CONVERSATION",
+  reconciliation: "PAYMENT_RECONCILIATION",
 } as const;
 
 export type RuntimeKind = (typeof runtimeKinds)[keyof typeof runtimeKinds];

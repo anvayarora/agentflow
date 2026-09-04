@@ -9,6 +9,7 @@ const [{ getCommerceRepository, resetCommerceRepositoryForTests }, runtime, cata
   import("../lib/commerce/checkout-service.ts"),
   import("../lib/payments/payment-adapter.ts"),
 ]);
+const { transcribeAudio } = await import("../lib/ai/providers/sarvam.ts");
 
 const context = { organizationId: "p1-hardening-org", actorType: "customer", actorId: "shopper:p1", correlationId: "p1-hardening" };
 
@@ -63,4 +64,19 @@ test("post-retrieval catalogue constraints reject products that exceed shopper r
   const result = await catalogue.searchProducts(context, session, { query: "desk", maxPricePaise: 1_500_000, maxWidthCm: 120, material: "wood" });
   assert.ok(result.every((product) => product.listPricePaise <= 1_500_000));
   assert.ok(result.every((product) => Number(product.attributes.width) <= 120));
+});
+
+test("voice input rejects unsupported formats and excessive duration before provider access", async () => {
+  await assert.rejects(() => transcribeAudio({ bytes: new Uint8Array([1]), mimeType: "text/plain" }), (error) => error?.statusCode === 415);
+  await assert.rejects(() => transcribeAudio({ bytes: new Uint8Array([1]), mimeType: "audio/webm", durationSeconds: 121 }), (error) => error?.statusCode === 413);
+});
+
+test("audit pagination filters server-side repository records by correlation and entity metadata", async () => {
+  resetCommerceRepositoryForTests();
+  const repository = getCommerceRepository();
+  await repository.recordAudit(context, { eventType: "CHECKOUT_CREATED", entityType: "transaction", entityId: "tx-audit-1", metadata: { transactionId: "tx-audit-1" } });
+  await repository.recordAudit(context, { eventType: "PAYMENT_VERIFIED", entityType: "transaction", entityId: "tx-audit-2", correlationId: "other-correlation", metadata: { transactionId: "tx-audit-2" } });
+  const filtered = await repository.listAudit(context, { transactionId: "tx-audit-1", correlationId: context.correlationId, limit: 10 });
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].entityId, "tx-audit-1");
 });
