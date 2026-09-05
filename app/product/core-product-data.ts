@@ -91,6 +91,7 @@ export type CoreProductData = {
   policyStatus: string;
   policyNodes: CoreProductPolicyNode[];
   catalogueCount: number;
+  simulationProductId: string | null;
   activityCount: number;
   aiConversationCount: number;
   approvals: CoreProductApproval[];
@@ -114,7 +115,8 @@ const emptyData = (): CoreProductData => ({
   policyVersion: null,
   policyStatus: "UNAVAILABLE",
   policyNodes: [],
-  catalogueCount: 0,
+    catalogueCount: 0,
+    simulationProductId: null,
   activityCount: 0,
   aiConversationCount: 0,
   approvals: [],
@@ -177,6 +179,7 @@ export async function loadCoreProductData(): Promise<CoreProductData> {
     policyStatus: policy?.status ?? "UNAVAILABLE",
     policyNodes,
     catalogueCount: products.length,
+    simulationProductId: products.find((product) => /walnut compact desk/i.test(product.name))?.id || products[0]?.id || null,
     activityCount: audit.length,
     aiConversationCount: audit.filter((event) => event.eventType.includes("AGENT") || event.eventType.includes("VOICE")).length,
     approvals: approvals.slice(0, 20).map((approval) => ({

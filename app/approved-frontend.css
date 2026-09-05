@@ -4925,6 +4925,9 @@ svg.brand-mark {
 .copilot-thread { display: grid; gap: 13px; padding: 15px 13px; }
 .copilot-message { display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 9px; padding-bottom: 13px; border-bottom: 1px solid var(--app-line-soft); }
 .copilot-message b { color: #433d37; font-size: 11px; }.copilot-message p { margin: 5px 0 0; color: #817870; font-size: 10px; line-height: 1.45; }
+.copilot-prompt-label { color: #5f554d; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.copilot-prompt { width: 100%; min-height: 118px; resize: vertical; padding: 11px 12px; border: 1px solid #dfd3ca; border-radius: 9px; color: #3f3934; background: #fffefa; font: inherit; font-size: 10px; line-height: 1.55; outline: none; }.copilot-prompt:focus { border-color: #c96047; box-shadow: 0 0 0 3px rgba(201,96,71,.1); }
+.copilot-result { padding: 9px 10px; border-radius: 8px; color: #795b4d; background: #fff2ea; font-size: 9px; line-height: 1.45; }.copilot-result.is-valid { color: #426c52; background: #edf7f0; }
 .copilot-checks { display: grid; gap: 8px; }.copilot-checks span { display: flex; align-items: center; gap: 7px; color: #547961; font-size: 10px; }
 .copilot-clarification { display: grid; gap: 5px; padding: 11px; border-radius: 8px; color: #675d54; background: #fff4ed; }.copilot-clarification small { color: #a0604c; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }.copilot-clarification b { font-size: 10px; line-height: 1.4; }
 .copilot-action { display: grid; gap: 10px; margin-top: auto; padding: 14px; border-top: 1px solid var(--app-line-soft); }.copilot-action small { color: #948a81; font-size: 9px; line-height: 1.4; text-align: center; }
