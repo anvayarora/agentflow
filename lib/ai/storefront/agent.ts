@@ -137,6 +137,15 @@ function isProviderUnavailable(error: unknown) {
   return typeof record.statusCode === "number" || name.includes("apicall") || name.includes("provider") || name.includes("shopifyucp") || name.includes("abort") || message.includes("nim request timed out") || message.includes("shopify ucp request timed out");
 }
 
+function isRetryableProviderError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { name?: unknown; message?: unknown; statusCode?: unknown };
+  const name = typeof record.name === "string" ? record.name.toLowerCase() : "";
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  const statusCode = typeof record.statusCode === "number" ? record.statusCode : undefined;
+  return statusCode === 408 || statusCode === 429 || (statusCode !== undefined && statusCode >= 500) || name.includes("abort") || message.includes("timed out") || message.includes("timeout") || message.includes("econnreset") || message.includes("connection reset");
+}
+
 async function loadPreferences(context: TrustedRequestContext, sessionId: string) {
   const record = await getRuntimeStore().get<ShopperPreferences>(context, runtimeKinds.shopperPreferences, sessionId);
   return record ? shopperPreferencesSchema.parse(record.payload) : emptyShopperPreferences;
@@ -237,7 +246,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const agent = new ToolLoopAgent({ id: "agentflow-storefront", model: getNimModel(), instructions: `${STOREFRONT_AGENT_INSTRUCTIONS}\n${salesperson ? personaInstruction(salesperson, language) : "Use a concise customer-facing tone."}`, tools, providerOptions: { nvidiaNim: { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } } }, stopWhen: isStepCount(4), temperature: 1, topP: 0.95, maxOutputTokens: 256 });
     const prompt = `Trusted storefront session context: currency=${session.currency}; language=${language}; preferences=${JSON.stringify(preferences)}; pageContext=${JSON.stringify(safePageContext)}; recentConversation=${JSON.stringify(priorConversation)}; latestResultProductIds=${JSON.stringify(priorResultSet.productIds)}.\nFor clear shopping intent you must use the appropriate typed tool. Follow-up ordinals refer to latestResultProductIds. Never invent a product or commercial result.\nCustomer request: ${message}`;
     const generationTimeout = { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 45_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 15_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) };
-    const repairPrompt = `${prompt}\nThis is a bounded repair attempt. The shopper asked for product discovery. Execute search_products now with the hard constraints you can infer; return NO_RESULTS if none match. Do not answer with unsupported prose.`;
+    const repairPrompt = `${prompt}\nThis is a bounded same-provider retry. Complete the shopper's request using the appropriate typed AgentFlow tool now. For discovery, execute search_products with the hard constraints you can infer and return NO_RESULTS if none match. For detail, comparison, shortlist, accessory, cart, offer, or checkout requests, use the corresponding typed tool. Do not answer with unsupported commercial prose.`;
     let repaired = false;
     let result;
     try {
@@ -246,7 +255,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
       // A malformed provider tool call is recoverable once. Keep the retry in
       // the same provider/tool boundary; never switch to a deterministic or
       // mock answer while claiming the model completed the turn.
-      if (discoveryIntent(message) && products.length === 0 && !isProviderUnavailable(error)) {
+      if (products.length === 0 && isRetryableProviderError(error)) {
         repaired = true;
         result = await agent.generate({ prompt: repairPrompt, timeout: { totalMs: Number(process.env.AGENT_REPAIR_TIMEOUT_MS || 20_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 10_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
       } else {
