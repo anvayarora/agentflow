@@ -1,6 +1,42 @@
 # AgentFlow
 
-AgentFlow is a TypeScript/React commerce control plane. Merchants describe how they do business; a typed policy proposal is validated, versioned, and published; deterministic server code then authorizes each commercial action.
+AgentFlow is the merchant-side control plane for agentic commerce. It lets a merchant describe how AI may sell, converts that intent into a versioned commercial policy, and gives shoppers a conversational salesperson on Shopify—while deterministic server code retains authority over discounts, approvals, checkout amounts, and payment evidence.
+
+## Live demo
+
+| Surface | Link | Access |
+|---|---|---|
+| AgentFlow merchant product | [Open AgentFlow](https://agentflow-beige-eight.vercel.app/app/overview) | Buildathon demo |
+| Haven Home Shopify store | [Open Haven Home](https://haven-home-k1gerlw9.myshopify.com/) | Storefront password: **demo** |
+
+> Haven Home is a Shopify development store. Use the password above if Shopify shows the storefront password gate.
+
+## Product walkthrough
+
+### Merchant control plane
+
+![AgentFlow merchant overview](artifacts/ui-cleanup/after/overview-1366.png)
+
+The merchant workspace combines policy setup, deterministic simulations, human approvals, growth opportunities, connected storefront operations, transactions, and an append-only audit trail.
+
+### Shopper-facing Shopify experience
+
+![Haven Home Shopify storefront with AgentFlow](artifacts/final-uat-storefront-desktop.png)
+
+The AgentFlow storefront assistant helps shoppers discover and compare real Shopify products, maintain a shortlist and cart, negotiate within merchant-defined limits, escalate exceptions for approval, and move to an authorized test checkout.
+
+## What AgentFlow demonstrates
+
+- Natural-language Setup Copilot that proposes typed Policy IR drafts for merchant review.
+- Published, immutable policy versions that drive the same runtime, graph, simulation, explanation, and audit evidence.
+- Server-authoritative `ALLOW`, `COUNTER`, `ESCALATE`, and `DENY` decisions using canonical product, customer, inventory, and private-economics data.
+- A Shopify-native AI salesperson for chat, voice, product discovery, comparison, co-browsing, cart actions, offers, and checkout confirmation.
+- Human-in-the-loop approvals with bounded, policy-revalidated merchant counters.
+- Growth opportunities and bundles that remain subject to margin and policy constraints.
+- Razorpay Test Mode payment execution and provider-verified revenue accounting.
+- PostgreSQL persistence, tenant-scoped repositories, and server-originated audit events.
+
+The core principle is simple: **AI may propose. Deterministic policy authorizes. The browser never owns merchant authority.**
 
 The trust boundary is:
 
