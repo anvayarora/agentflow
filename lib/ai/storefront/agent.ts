@@ -93,8 +93,14 @@ function productDetailMessage(message: string, product: Record<string, unknown>)
   const description = typeof product.description === "string" ? product.description : "";
   const width = typeof attrs.width === "number" ? `${attrs.width} cm wide` : typeof attrs.widthCm === "number" ? `${attrs.widthCm} cm wide` : null;
   const storage = typeof attrs.storage === "boolean" ? (attrs.storage ? "it includes storage" : "it does not include storage") : /\b(drawer|drawers|storage|cabinet|shelf|shelves)\b/i.test(description) ? "it includes storage" : null;
-  if (/storage|drawer|isme|inside/i.test(message) && storage) return `${title} ${storage}.`;
-  if (/width|wide|dimension|kitna/i.test(message) && width) return `${title} is ${width}.`;
+  const asksStorage = /storage|drawer|isme|inside/i.test(message);
+  const asksWidth = /width|wide|dimension|kitna/i.test(message);
+  if (asksStorage || asksWidth) {
+    const details: string[] = [];
+    if (asksWidth) details.push(width ? `it is ${width}` : "that dimension is not available in the current product details");
+    if (asksStorage) details.push(storage || "storage information is not available in the current product details");
+    return `${title} ${details.join(", and ")}.`;
+  }
   if (width || storage) return `${title}${width ? ` is ${width}` : ""}${width && storage ? ", and " : storage ? " " : ""}${storage || ""}.`;
   return `I can share the public details for ${title}, but that specification is not listed in the current product details.`;
 }
