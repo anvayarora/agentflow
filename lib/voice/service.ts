@@ -49,8 +49,8 @@ export async function runVoiceTurn(input: { context: TrustedRequestContext; sess
       voice.latencyMs = speech.latencyMs;
       voice.cached = speech.cached;
       await getCommerceRepository().recordAudit(input.context, { eventType: "VOICE_TTS_COMPLETED", entityType: "salesperson_profile", entityId: session.salesperson.id, shoppingSessionId: input.sessionId, metadata: { salespersonProfileId: session.salesperson.id, speakerId: session.salesperson.speakerId, language, characters: speech.characters, latencyMs: speech.latencyMs, cached: speech.cached, requestId: speech.requestId } });
-    } catch (error) {
-      voice.error = error instanceof Error ? error.message : "Voice output is unavailable.";
+    } catch {
+      voice.error = "Voice output is temporarily unavailable.";
       await getCommerceRepository().recordAudit(input.context, { eventType: "VOICE_PROVIDER_FAILED", entityType: "salesperson_profile", entityId: session.salesperson.id, shoppingSessionId: input.sessionId, metadata: { direction: "tts", language, reason: "provider_unavailable" } });
     }
   }

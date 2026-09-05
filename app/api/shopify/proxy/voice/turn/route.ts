@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { runVoiceTurn } from "../../../../../../lib/voice/service";
 import { ShopifyProxyError } from "../../../../../../lib/server/shopify/proxy";
+import { shopifyPublicError } from "../../../../../../lib/server/shopify/public-error";
 import { getBoundShopifySession } from "../../../../../../lib/server/shopify/proxy-context";
 import { consumeRateLimit, rateLimitResponse } from "../../../../../../lib/server/rate-limit";
 
@@ -25,7 +26,6 @@ export async function POST(request: Request) {
     const result = await runVoiceTurn({ context, sessionId: session.id, message: body.message, salespersonProfileId: body.salespersonProfileId, language: body.language, voiceEnabled: body.voiceEnabled, inputMode: body.inputMode || "voice", storefrontContext: body.storefrontContext });
     return Response.json(result, { status: result.status === "PROVIDER_UNAVAILABLE" ? 503 : 200 });
   } catch (error) {
-    const message = error instanceof ShopifyProxyError ? error.message : error instanceof Error ? error.message : "Voice turn failed.";
-    return Response.json({ error: message }, { status: error instanceof ShopifyProxyError ? 401 : 400 });
+    return Response.json(shopifyPublicError(error, "Voice turn is temporarily unavailable."), { status: error instanceof ShopifyProxyError ? 401 : 400 });
   }
 }

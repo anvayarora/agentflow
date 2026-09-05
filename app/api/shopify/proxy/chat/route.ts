@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { getTrustedRequestContext } from "../../../../../lib/server/context";
 import { resolveShopifyIntegration } from "../../../../../lib/server/shopify/integration";
-import { ShopifyProxyError, verifyShopifyProxyRequest } from "../../../../../lib/server/shopify/proxy";
+import { verifyShopifyProxyRequest } from "../../../../../lib/server/shopify/proxy";
+import { shopifyPublicError } from "../../../../../lib/server/shopify/public-error";
 import { getCommerceRepository } from "../../../../../lib/server/repositories/commerce";
 import { runStorefrontAgent } from "../../../../../lib/ai/storefront/agent";
 import { consumeRateLimit, rateLimitResponse } from "../../../../../lib/server/rate-limit";
@@ -24,8 +25,7 @@ const requestSchema = z.object({
 }).strict();
 
 function errorResponse(error: unknown, status = 400) {
-  const message = error instanceof ShopifyProxyError ? error.message : error instanceof Error ? error.message : "Shopify AgentFlow request failed.";
-  return Response.json({ error: message }, { status });
+  return Response.json(shopifyPublicError(error, "The shopping assistant is temporarily unavailable."), { status });
 }
 
 export async function POST(request: Request) {
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     if (session.shopifyShopDomain && session.shopifyShopDomain !== verified.shopDomain) return Response.json({ error: "Shopify session shop binding is invalid." }, { status: 403 });
     await repository.recordAudit(context, { eventType: "COMMERCE_ACTION_REQUESTED", entityType: "shopify_agent_message", entityId: session.id, shoppingSessionId: session.id, metadata: { source: "shopify_app_proxy", messageLength: body.message.length, pageType: body.storefrontContext?.pageType || "unknown", hasHints: Boolean(body.storefrontContext) } });
     const agent = await runStorefrontAgent({ context, sessionId: session.id, message: body.message, storefrontContext: body.storefrontContext });
-    return Response.json({ ...agent, connection: { shopDomain: verified.shopDomain, organizationId: integration.organizationId, customerContext: verified.loggedInCustomerId ? "trusted_shopify_customer" : "anonymous_shopify_customer", policyAuthority: "server_only" }, parts: [] }, { status: agent.status === "PROVIDER_UNAVAILABLE" ? 503 : 200 });
+    return Response.json({ ...agent, connection: { shopDomain: verified.shopDomain, customerContext: verified.loggedInCustomerId ? "trusted_shopify_customer" : "anonymous_shopify_customer", policyAuthority: "server_only" }, parts: [] }, { status: agent.status === "PROVIDER_UNAVAILABLE" ? 503 : 200 });
   } catch (error) {
     if (error instanceof z.ZodError) return Response.json({ error: "Storefront message payload is invalid.", issues: error.issues.map((issue) => issue.path.join(".")) }, { status: 400 });
     return errorResponse(error, 400);

@@ -27,6 +27,7 @@ export type StorefrontAgentResult = {
   offer: unknown | null;
   approval: unknown | null;
   checkout: unknown | null;
+  navigation?: { type: "NAVIGATE_TO_PRODUCT"; productId: string } | null;
   model: string;
   modelCalls: number;
   toolSteps: number;
@@ -42,7 +43,18 @@ export type StorefrontAgentResult = {
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const safeMessage = "I’m having trouble completing that request right now. Please try again in a moment.";
 
+const internalCustomerText = /(?:organization[_-]?id|apiproxy(?:path)?|ucp(?:endpoint)?|shopify_[a-z_]+|drizzle|postgres(?:ql)?|sqlstate|stack\s*trace|(?:select|insert|update|delete)\s+[\s\S]{0,180}\s+from\s+|\/api\/|database\s+error|internal\s+server)/i;
+
 function customerFacingMessage(text: string, products: unknown[]) {
+  if (internalCustomerText.test(text)) {
+    const names = products
+      .map((product) => product && typeof product === "object" && "name" in product && typeof product.name === "string" ? product.name : product && typeof product === "object" && "title" in product && typeof product.title === "string" ? product.title : null)
+      .filter((name): name is string => Boolean(name))
+      .slice(0, 3);
+    if (names.length === 1) return `I found ${names[0]} — a strong fit for what you described.`;
+    if (names.length > 1) return `I found a few good options: ${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}.`;
+    return safeMessage;
+  }
   const internalToolNarration = /function call|json object|search_products|tool call|tool result|schema|search result|search again/i.test(text);
   if (!internalToolNarration || products.length === 0) return text;
   const names = products
@@ -102,6 +114,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
   let latestOffer: unknown | null = null;
   let latestApproval: unknown | null = null;
   let latestCheckout: unknown | null = null;
+  let latestNavigation: { type: "NAVIGATE_TO_PRODUCT"; productId: string } | null = null;
   let growthActions: unknown[] = [];
   const toolTimings: Record<string, number[]> = {};
   let toolSteps = 0;
@@ -146,7 +159,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     add_to_shortlist: callTool("add_to_shortlist", storefrontToolSchemas.add_to_shortlist, async (value) => ({ shortlist: await updateShortlist(context, sessionId, { add: value.productIds }) })),
     remove_from_shortlist: callTool("remove_from_shortlist", storefrontToolSchemas.remove_from_shortlist, async (value) => ({ shortlist: await updateShortlist(context, sessionId, { remove: value.productIds }) })),
     open_shortlist: callTool("open_shortlist", storefrontToolSchemas.open_shortlist, async () => ({ shortlist: await getShortlist(context, sessionId) })),
-    navigate_to_product: callTool("navigate_to_product", storefrontToolSchemas.navigate_to_product, async (value) => ({ type: "NAVIGATE_TO_PRODUCT", productId: value.productId })),
+    navigate_to_product: callTool("navigate_to_product", storefrontToolSchemas.navigate_to_product, async (value) => { latestNavigation = { type: "NAVIGATE_TO_PRODUCT", productId: value.productId }; return latestNavigation; }),
   };
 
   try {
@@ -165,7 +178,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const ui = projectStorefrontUi({ message: text, products, cart: latestCart, offer: latestOffer && typeof latestOffer === "object" ? latestOffer as { offerId?: string; outcome?: string } : null, approval: latestApproval && typeof latestApproval === "object" ? latestApproval as { approvalId?: string } : null, checkout: latestCheckout, shortlistProductIds: shortlist.productIds });
     const latencyMs = Date.now() - turnStartedAt;
     await repository.recordAudit(context, { eventType: "AGENT_TURN_COMPLETED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { modelCalls: result.steps.length, toolSteps, responseLength: text.length, latencyMs, toolTimings } });
-    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: result.steps.length, toolSteps, ui, shortlist: shortlist.productIds, growthActions, latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
+    return { sessionId, message: text, status: "COMPLETED", products: products.slice(0, 20), cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, navigation: latestNavigation, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: result.steps.length, toolSteps, ui, shortlist: shortlist.productIds, growthActions, latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
   } catch (error) {
     const configuration = error instanceof NimConfigurationError;
     const providerUnavailable = isProviderUnavailable(error);
@@ -177,6 +190,6 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const shortlist = await getShortlist(context, sessionId).catch(() => ({ productIds: [] }));
     const text = configuration ? "The storefront assistant is not enabled for this environment yet." : providerUnavailable ? "The storefront assistant is temporarily unavailable. Please try again in a moment." : safeMessage;
     const latencyMs = Date.now() - turnStartedAt;
-    return { sessionId, message: text, status: providerUnavailable ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
+    return { sessionId, message: text, status: providerUnavailable ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, navigation: latestNavigation, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
   }
 }

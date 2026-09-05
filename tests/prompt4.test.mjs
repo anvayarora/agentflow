@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { parseCatalogueFile, buildCatalogueImportPreview } from "../lib/bootstrap/catalogue.ts";
 import { storefrontUiSurfaceSchema, uiActionFromClient, projectStorefrontUi } from "../lib/ai/storefront/ui.ts";
 import { resetBootstrapRepositoryForTests, createImportRun, getImportRun } from "../lib/server/repositories/bootstrap.ts";
+import { shopifyPublicError } from "../lib/server/shopify/public-error.ts";
 
 const context = { organizationId: "prompt4-test-org", actorType: "merchant", actorId: "test", correlationId: "prompt4-correlation" };
 
@@ -34,4 +35,10 @@ test("import previews are tenant-scoped and UI surfaces reject arbitrary payload
   const surface = projectStorefrontUi({ message: "Here are your options", products: [{ id: "p1", name: "Desk" }, { id: "p2", name: "Lamp" }] });
   assert.equal(surface.type, "PRODUCT_GRID");
   assert.equal(storefrontUiSurfaceSchema.parse(surface).type, "PRODUCT_GRID");
+});
+
+test("shopper-facing Shopify errors never expose adapter or database details", () => {
+  const response = shopifyPublicError(new Error('select organization_id from integrations where appProxyPath = "/apps/agentflow"'), "The shopping assistant is temporarily unavailable.");
+  assert.equal(response.error, "The shopping assistant is temporarily unavailable.");
+  assert.equal(response.code, "SHOPIFY_REQUEST_FAILED");
 });

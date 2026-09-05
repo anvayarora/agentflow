@@ -1,6 +1,7 @@
 import { getSalespersonRepository } from "../../../../../lib/server/repositories/salesperson";
 import { ShopifyProxyError } from "../../../../../lib/server/shopify/proxy";
 import { getShopifyProxyContext } from "../../../../../lib/server/shopify/proxy-context";
+import { shopifyPublicError } from "../../../../../lib/server/shopify/public-error";
 
 export const runtime = "nodejs";
 
@@ -21,7 +22,6 @@ export async function GET(request: Request) {
       })),
     });
   } catch (error) {
-    const message = error instanceof ShopifyProxyError ? error.message : error instanceof Error ? error.message : "Salesperson profiles are unavailable.";
-    return Response.json({ error: message }, { status: error instanceof ShopifyProxyError ? 401 : 400 });
+    return Response.json(shopifyPublicError(error, "Salesperson profiles are temporarily unavailable."), { status: error instanceof ShopifyProxyError ? 401 : 400 });
   }
 }

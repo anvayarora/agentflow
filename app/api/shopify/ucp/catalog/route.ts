@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getShopifyUcpClient, toPublicShopifyProduct } from "../../../../../lib/server/shopify/ucp";
+import { shopifyPublicError } from "../../../../../lib/server/shopify/public-error";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,6 @@ export async function POST(request: Request) {
     return Response.json({ source: "SHOPIFY_UCP_CONNECTED", product: result.product ? toPublicShopifyProduct(result.product) : null, ucp: result.ucp });
   } catch (error) {
     if (error instanceof z.ZodError) return Response.json({ error: "Shopify UCP catalogue request is invalid.", issues: error.issues.map((issue) => issue.path.join(".")) }, { status: 400 });
-    return Response.json({ error: error instanceof Error ? error.message : "Shopify UCP catalogue request failed." }, { status: 502 });
+    return Response.json(shopifyPublicError(error, "The product catalogue is temporarily unavailable."), { status: 502 });
   }
 }

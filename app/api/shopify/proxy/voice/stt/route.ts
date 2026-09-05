@@ -1,6 +1,7 @@
 import { getCommerceRepository } from "../../../../../../lib/server/repositories/commerce";
 import { SarvamConfigurationError, SarvamProviderError, transcribeAudio } from "../../../../../../lib/ai/providers/sarvam";
 import { ShopifyProxyError } from "../../../../../../lib/server/shopify/proxy";
+import { shopifyPublicError } from "../../../../../../lib/server/shopify/public-error";
 import { getBoundShopifySession } from "../../../../../../lib/server/shopify/proxy-context";
 import { consumeRateLimit, rateLimitResponse } from "../../../../../../lib/server/rate-limit";
 
@@ -34,8 +35,7 @@ export async function POST(request: Request) {
     return Response.json({ ...result, sessionId: session.id });
   } catch (error) {
     if (error instanceof SarvamConfigurationError) return Response.json({ error: "Voice input is not enabled for this store yet.", provider: "SARVAM" }, { status: 503 });
-    if (error instanceof SarvamProviderError) return Response.json({ error: error.message, provider: "SARVAM" }, { status: error.statusCode && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 503 });
-    const message = error instanceof ShopifyProxyError ? error.message : error instanceof Error ? error.message : "Voice input failed.";
-    return Response.json({ error: message }, { status: error instanceof ShopifyProxyError ? 401 : 400 });
+    if (error instanceof SarvamProviderError) return Response.json({ error: "Voice input is temporarily unavailable.", code: "PROVIDER_UNAVAILABLE", provider: "SARVAM" }, { status: error.statusCode && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 503 });
+    return Response.json(shopifyPublicError(error, "Voice input is temporarily unavailable."), { status: error instanceof ShopifyProxyError ? 401 : 400 });
   }
 }

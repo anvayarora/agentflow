@@ -4,6 +4,7 @@ import { ShopifyProxyError } from "../../../../../../lib/server/shopify/proxy";
 import { getShopifyProxyContext, getBoundShopifySession } from "../../../../../../lib/server/shopify/proxy-context";
 import { getRuntimeStore, runtimeKinds } from "../../../../../../lib/server/runtime/store";
 import { consumeRateLimit, rateLimitResponse } from "../../../../../../lib/server/rate-limit";
+import { shopifyPublicError } from "../../../../../../lib/server/shopify/public-error";
 
 export const runtime = "nodejs";
 const schema = z.object({ offerId: z.string().trim().min(1).max(255) }).strict();
@@ -21,6 +22,6 @@ export async function POST(request: Request) {
     return Response.json({ shopDomain: verified.shopDomain, ...result });
   } catch (error) {
     const status = error instanceof ShopifyProxyError ? 401 : error instanceof z.ZodError ? 400 : 400;
-    return Response.json({ error: error instanceof Error ? error.message : "Offer acceptance failed." }, { status });
+    return Response.json(shopifyPublicError(error, "That offer could not be accepted."), { status });
   }
 }

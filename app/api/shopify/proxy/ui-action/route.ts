@@ -8,6 +8,7 @@ import { storefrontUiActionSchema } from "../../../../../lib/ai/storefront/ui";
 import { buildComparisonMatrix } from "../../../../../lib/ai/storefront/comparison";
 import { getRuntimeStore, runtimeKinds, type RuntimeRecord } from "../../../../../lib/server/runtime/store";
 import type { OfferPayload } from "../../../../../lib/commerce/offer-service";
+import { shopifyPublicError } from "../../../../../lib/server/shopify/public-error";
 
 export const runtime = "nodejs";
 const schema = z.object({ sessionId: z.string().trim().min(1).max(255).optional(), action: storefrontUiActionSchema }).strict();
@@ -42,5 +43,5 @@ export async function POST(request: Request) {
       case "CHECKOUT": return Response.json({ type: input.action.type, checkout: await createCheckout(context, { sessionId: session.id, idempotencyKey: `ui-${session.id}-${context.correlationId}` }) });
       case "COMPARE_PRODUCTS": { const products = (await Promise.all(input.action.productIds.map((id) => getProduct(context, session, id)))).filter(Boolean); return Response.json({ type: input.action.type, products, matrix: buildComparisonMatrix(products) }); }
     }
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Storefront action was rejected." }, { status: 400 }); }
+  } catch (error) { return Response.json(shopifyPublicError(error, "That storefront action could not be completed."), { status: 400 }); }
 }

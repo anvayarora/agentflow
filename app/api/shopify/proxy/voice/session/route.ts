@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ensureVoiceSession } from "../../../../../../lib/voice/service";
 import { ShopifyProxyError } from "../../../../../../lib/server/shopify/proxy";
+import { shopifyPublicError } from "../../../../../../lib/server/shopify/public-error";
 import { getBoundShopifySession } from "../../../../../../lib/server/shopify/proxy-context";
 import { consumeRateLimit, rateLimitResponse } from "../../../../../../lib/server/rate-limit";
 
@@ -23,7 +24,6 @@ export async function POST(request: Request) {
     const view = await ensureVoiceSession(context, session.id, body.salespersonProfileId, body.language, body.voiceEnabled !== false);
     return Response.json(view);
   } catch (error) {
-    const message = error instanceof ShopifyProxyError ? error.message : error instanceof Error ? error.message : "Voice session could not be prepared.";
-    return Response.json({ error: message }, { status: error instanceof ShopifyProxyError ? 401 : 400 });
+    return Response.json(shopifyPublicError(error, "Voice session could not be prepared."), { status: error instanceof ShopifyProxyError ? 401 : 400 });
   }
 }

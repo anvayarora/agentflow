@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const SHOPIFY_UCP_VERSION = "2026-04-08";
+export const SHOPIFY_UCP_VERSION = "2026-08-25";
 export const DEFAULT_SHOPIFY_DOMAIN = "haven-home-k1gerlw9.myshopify.com";
 
 type JsonRecord = Record<string, unknown>;
@@ -336,7 +336,16 @@ export class ShopifyUcpClient {
       services,
       capabilities: capabilityMap(root.capabilities),
     };
-    const versionSupported = Boolean(business.version && (business.version === SHOPIFY_UCP_VERSION || business.supportedVersions[business.version]));
+    const serviceVersions = serviceEntries.flatMap((entry) => {
+      const version = asString(asRecord(entry).version);
+      return version ? [version] : [];
+    });
+    const versionSupported = Boolean(
+      business.version &&
+      (business.version === SHOPIFY_UCP_VERSION ||
+        serviceVersions.includes(SHOPIFY_UCP_VERSION) ||
+        Boolean(business.supportedVersions[business.version])),
+    );
     if (!versionSupported) throw new ShopifyUcpError(`Shopify UCP version ${business.version || "unknown"} is not a supported contract.`, "UNSUPPORTED_UCP_VERSION");
     this.business = business;
     return business;
@@ -353,7 +362,7 @@ export class ShopifyUcpClient {
   }
 
   async searchCatalog(query: string, options: { limit?: number; cursor?: string } = {}) {
-    const payload = await this.call("tools/call", { name: "search_catalog", arguments: { catalog: { query, pagination: { limit: Math.min(Math.max(options.limit || 10, 1), 50), ...(options.cursor ? { cursor: options.cursor } : {}) } } } });
+    const payload = await this.call("tools/call", { name: "search_catalog", arguments: { catalog: { query, ...(configuredUcpContext() ? { context: configuredUcpContext() } : {}), filters: { available: true }, pagination: { limit: Math.min(Math.max(options.limit || 10, 1), 50), ...(options.cursor ? { cursor: options.cursor } : {}) } } } });
     const structured = parseStructuredContent(payload);
     const products = Array.isArray(structured.products) ? structured.products.flatMap(mapProduct) : [];
     const pagination = asRecord(structured.pagination);
