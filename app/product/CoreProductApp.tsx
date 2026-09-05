@@ -16,7 +16,7 @@ function AppIcon({ name, size = 17 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
     home: <><path d="m3 10 9-7 9 7v10H3z" /><path d="M9 21v-6h6v6" /></>,
     spark: <><path d="m12 2 1.8 7.2L21 12l-7.2 1.8L12 21l-1.8-7.2L3 12l7.2-2.8Z" /><path d="m19 3 .4 1.6L21 5l-1.6.4L19 7l-.4-1.6L17 5l1.6-.4Z" /></>,
-    store: <><path d="M4 10h16v10H4z" /><path d="M3 10 5 4h14l2 6" /><path d="M8 14h3v6H8z" /><path d="M4 10c.5 2 3.5 2 4 0 .5 2 3.5 2 4 0 .5 2 3.5 2 4 0 .5 2 3.5 4 0" /></>,
+    store: <><path d="M4 10h16v10H4z" /><path d="M3 10 5 4h14l2 6" /><path d="M8 14h3v6H8z" /><path d="M4 10c.5 2 3.5 2 4 0 .5 2 3.5 2 4 0 .5 2 3.5 2 4 0 .5 2 3.5 2 4 0" /></>,
     growth: <><path d="M4 18 9 12l4 3 7-8" /><path d="M15 7h5v5" /></>,
     shield: <><path d="M12 3 20 6v5.5c0 4.8-3.4 8.2-8 9.5-4.6-1.3-8-4.7-8-9.5V6l8-3Z" /><path d="m8.5 12 2.3 2.3 4.7-4.7" /></>,
     bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></>,
