@@ -25,7 +25,7 @@ const compilerInstruction = `You are AgentFlow's policy compiler. Return JSON on
 Use only these condition fields: customer.segment, cart.totalPaise, cart.quantity, product.sku, product.category, product.brand, product.stock, product.costPaise, product.listPricePaise, product.tags.
 Use only these operators: equals, notEquals, greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual, in, notIn, includes.
 Use only these effects: SET_MAX_DISCOUNT_BPS, ADD_MAX_DISCOUNT_BPS, SET_MIN_MARGIN_BPS, REQUIRE_APPROVAL, DENY, ALLOW_BUNDLE, SET_QUANTITY_DISCOUNT, DISABLE_NEGOTIATION.
-Return the compact shape {"version":1,"rules":[{"condition":{"customer.segment":"equals repeat"},"effect":"SET_MAX_DISCOUNT_BPS 1500"}]}. Use one valid condition field per rule; use an empty condition object for global rules. Effect arguments must be integers. No JavaScript, expressions, eval, connector authority, or unknown fields. Use integer paise and basis points. Flag contradictions by leaving the rules explicit; a server validator will decide whether the draft is publishable.`;
+Return the canonical tuple shape {"version":1,"rules":[{"condition":{"field":"customer.segment","operator":"equals","value":"repeat"},"effect":"SET_MAX_DISCOUNT_BPS 1500"}]}. Use one valid condition field per rule; use an empty condition object for global rules. Effect arguments must be integers. No JavaScript, expressions, eval, connector authority, or unknown fields. Use integer paise and basis points. Flag contradictions by leaving the rules explicit; a server validator will decide whether the draft is publishable.`;
 
 const genericOperators = new Set<string>(conditionOperators);
 const genericFields = new Set<string>(conditionFields);
@@ -35,7 +35,7 @@ const parseGenericValue = (value: string): string | number | boolean => {
   return value;
 };
 
-function normalizeNimProposal(value: unknown, organizationId: string, prompt: string): PolicyVersionIR | null {
+export function normalizeNimProposal(value: unknown, organizationId: string, prompt: string): PolicyVersionIR | null {
   const direct = policyVersionSchema.safeParse(value);
   if (direct.success) return { ...direct.data, organizationId, source: "nim", sourcePrompt: prompt, status: "DRAFT", currency: "INR" };
   if (!value || typeof value !== "object" || !Array.isArray((value as { rules?: unknown }).rules)) return null;
@@ -47,15 +47,25 @@ function normalizeNimProposal(value: unknown, organizationId: string, prompt: st
     const conditions: PolicyVersionIR["rules"][number]["conditions"] = [];
     if (candidate.condition !== undefined) {
       if (!candidate.condition || typeof candidate.condition !== "object") return null;
-      for (const [rawField, expression] of Object.entries(candidate.condition as Record<string, unknown>)) {
-        const field = rawField.split(",").map((item) => item.trim()).find((item) => genericFields.has(item));
-        if (!field) return null;
-        const [operator, ...rest] = typeof expression === "string" ? expression.trim().split(/\s+/) : expression && typeof expression === "object" ? Object.entries(expression as Record<string, unknown>)[0] || [] : [];
-        if (!genericOperators.has(operator) || rest.length === 0) return null;
-        const parsedValue = Array.isArray(rest) && rest.length === 1 && typeof rest[0] !== "string" ? rest[0] : parseGenericValue(rest.join(" "));
+      const rawCondition = candidate.condition as Record<string, unknown>;
+      // Nemotron may return the canonical tuple shape directly instead of the
+      // compact field-to-expression example. Accept only the exact tuple so
+      // unknown condition fields cannot slip through the proposal boundary.
+      if ("field" in rawCondition || "operator" in rawCondition || "value" in rawCondition) {
+        if (Object.keys(rawCondition).length !== 3 || typeof rawCondition.field !== "string" || typeof rawCondition.operator !== "string") return null;
+        if (!genericFields.has(rawCondition.field) || !genericOperators.has(rawCondition.operator)) return null;
+        const parsedValue = rawCondition.value;
         if (!(typeof parsedValue === "string" || typeof parsedValue === "number" || typeof parsedValue === "boolean" || Array.isArray(parsedValue))) return null;
-        conditions.push({ field: field as PolicyVersionIR["rules"][number]["conditions"][number]["field"], operator: operator as PolicyVersionIR["rules"][number]["conditions"][number]["operator"], value: parsedValue });
-      }
+        conditions.push({ field: rawCondition.field as PolicyVersionIR["rules"][number]["conditions"][number]["field"], operator: rawCondition.operator as PolicyVersionIR["rules"][number]["conditions"][number]["operator"], value: parsedValue });
+      } else for (const [rawField, expression] of Object.entries(rawCondition)) {
+          const field = rawField.split(",").map((item) => item.trim()).find((item) => genericFields.has(item));
+          if (!field) return null;
+          const [operator, ...rest] = typeof expression === "string" ? expression.trim().split(/\s+/) : expression && typeof expression === "object" ? Object.entries(expression as Record<string, unknown>)[0] || [] : [];
+          if (!genericOperators.has(operator) || rest.length === 0) return null;
+          const parsedValue = Array.isArray(rest) && rest.length === 1 && typeof rest[0] !== "string" ? rest[0] : parseGenericValue(rest.join(" "));
+          if (!(typeof parsedValue === "string" || typeof parsedValue === "number" || typeof parsedValue === "boolean" || Array.isArray(parsedValue))) return null;
+          conditions.push({ field: field as PolicyVersionIR["rules"][number]["conditions"][number]["field"], operator: operator as PolicyVersionIR["rules"][number]["conditions"][number]["operator"], value: parsedValue });
+        }
     }
     if (typeof candidate.effect !== "string") return null;
     const [effectName, ...effectArgs] = candidate.effect.trim().split(/\s+/);

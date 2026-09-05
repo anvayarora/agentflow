@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
-const [catalogue, repositoryModule, shopperState, preferences, ucp, ui, agent, nim] = await Promise.all([
+const [catalogue, repositoryModule, shopperState, preferences, ucp, ui, agent, nim, onboarding] = await Promise.all([
   import("../lib/commerce/catalog-service.ts"),
   import("../lib/server/repositories/commerce.ts"),
   import("../lib/ai/storefront/shopper-state.ts"),
@@ -11,6 +11,7 @@ const [catalogue, repositoryModule, shopperState, preferences, ucp, ui, agent, n
   import("../lib/ai/storefront/ui.ts"),
   import("../lib/ai/storefront/agent.ts"),
   import("../lib/ai/providers/nim.ts"),
+  import("../app/api/onboarding/compile/route.ts"),
 ]);
 
 const context = { organizationId: "uat-recovery-org", actorType: "customer", actorId: "shopify:anonymous", correlationId: "uat-recovery" };
@@ -95,6 +96,15 @@ test("NIM health probe is safe when the server credential is absent", async () =
   } finally {
     if (previous) process.env.NIM_API_KEY = previous;
   }
+});
+
+test("NIM tuple proposals normalize through the strict Policy IR boundary", () => {
+  const normalized = onboarding.normalizeNimProposal({ version: 1, rules: [{ condition: { field: "customer.segment", operator: "equals", value: "repeat" }, effect: "SET_MAX_DISCOUNT_BPS 1500" }] }, "org_haven_home_demo", "Repeat customers can receive 15% off.");
+  assert.ok(normalized);
+  assert.equal(normalized.rules[0].conditions[0].field, "customer.segment");
+  assert.equal(normalized.rules[0].effect.type, "SET_MAX_DISCOUNT_BPS");
+  assert.equal(normalized.rules[0].effect.valueBps, 1500);
+  assert.equal(onboarding.normalizeNimProposal({ version: 1, rules: [{ condition: { field: "private.secret", operator: "equals", value: "x" }, effect: "DENY" }] }, "org_haven_home_demo", "invalid"), null);
 });
 
 test("storefront assistant uses explicit presentation states and safe co-browsing transitions", async () => {
