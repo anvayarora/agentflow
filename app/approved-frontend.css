@@ -1498,7 +1498,8 @@ h2 span {
   font-size: 11px;
 }
 
-.settings-panel label {
+.settings-panel label,
+.settings-panel .settings-label {
   display: block;
   margin: 13px 0 7px;
   color: #4d4841;
@@ -4990,4 +4991,92 @@ svg.brand-mark {
 
 @media (max-width: 430px) {
   .product-main { padding-inline: 10px; }.product-topbar { gap: 9px; padding-inline: 10px; }.date-control { padding-inline: 9px; font-size: 10px; }.date-control svg:last-child { display: none; }.top-avatar { width: 34px; height: 34px; }.page-header h1 { font-size: 29px; }.page-header p { font-size: 12px; }.stats-grid { gap: 9px; }.stat-card { min-height: 104px; grid-template-columns: 37px minmax(0,1fr); gap: 9px; padding: 12px 10px; }.stat-icon { width: 37px; height: 37px; }.stat-content strong { font-size: 20px; }.stat-content > span:first-child,.stat-content .stat-detail { font-size: 9px; }.mini-spark { display: none; }.store-identity strong { align-items: flex-start; flex-direction: column; }.store-status-panel { padding: 12px; }.store-status-items { margin-top: 3px; }.opportunity-row { grid-template-columns: 35px minmax(0,1fr) auto; }.opportunity-row .opportunity-impact,.opportunity-row .review-label { display: none; }.activity-row { grid-template-columns: 27px minmax(0,1fr); }.activity-meta { grid-column: 2; display: flex; justify-content: space-between; }.compact-empty { grid-template-columns: 34px minmax(0,1fr); padding: 16px 12px; }.compact-empty-action { grid-column: 2; justify-self: start; }.preview-browser { height: 330px; }.preview-chrome nav { display: none; }.preview-hero { height: 220px; padding: 22px; }.preview-hero h3 { font-size: 24px; }.preview-footer { overflow: hidden; }.storefront-bottom { grid-template-columns: 1fr; }.growth-detail-kpis,.classification-strip { grid-template-columns: repeat(2,1fr); }.growth-opportunity-items > button { grid-template-columns: 43px minmax(0,1fr) 34px; }.growth-opportunity-items > button .status-badge { display: none; }.wide-list-row { grid-template-columns: 32px minmax(0,1fr) auto; }.wide-list-row > small { grid-column: 2; }.security-metrics { grid-template-columns: 1fr; }.approval-drawer { padding-inline: 16px; }
+}
+
+/* Keep the marketing policy canvas isolated from the product canvas primitives. */
+.page .policy-section .canvas-body {
+  height: 493px;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 180px;
+  padding: 0;
+  overflow: visible;
+}
+
+.page .policy-section .policy-node {
+  width: 28%;
+  height: 132px;
+  min-height: 132px;
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 14px 13px 10px;
+  border: 1px solid #e8d9c8;
+  border-radius: 12px;
+  color: inherit;
+  background: rgba(255, 253, 249, 0.97);
+  box-shadow: 0 10px 18px rgba(108, 74, 39, 0.08);
+  overflow: hidden;
+  text-align: left;
+}
+
+.page .policy-section .policy-node strong {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.page .policy-section .policy-node p {
+  margin: 0;
+  color: #6e6962;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.page .policy-section .policy-node small {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  color: var(--sage);
+  background: var(--sage-soft);
+  font-size: 9px;
+}
+
+.page .policy-section .node-amber small {
+  color: #bd7418;
+  background: var(--amber-soft);
+}
+
+.page .policy-section .node-blue {
+  border-color: #8aa0c0;
+  box-shadow: 0 0 0 1px rgba(111, 135, 172, 0.25), 0 10px 18px rgba(108, 74, 39, 0.08);
+}
+
+.page .policy-section .node-blue small {
+  color: #a56a14;
+  background: var(--amber-soft);
+}
+
+.page .policy-section .node-red small {
+  color: #ca5b43;
+  background: #fae5df;
+}
+
+.page .policy-section .canvas-grid .node-repeat-customer-rule { left: 4%; top: 42px; }
+.page .policy-section .canvas-grid .node-inventory-pressure { left: 4%; top: 194px; }
+.page .policy-section .canvas-grid .node-margin-floor { left: 4%; top: 345px; }
+.page .policy-section .canvas-grid .node-approval-threshold { left: 36%; top: 161px; }
+.page .policy-section .canvas-grid .node-bundle-offer { left: 68%; right: auto; top: 43px; }
+.page .policy-section .canvas-grid .node-deny-restricted-brand { left: 68%; right: auto; top: 195px; }
+.page .policy-section .canvas-grid .node-payment-guardrail { left: 68%; right: auto; top: 345px; }
+
+@media (min-width: 901px) and (max-width: 1300px) {
+  .page .policy-section .policy-node { padding: 11px 10px 8px; }
+  .page .policy-section .policy-node .node-icon { width: 29px; height: 29px; }
+  .page .policy-section .policy-node strong { font-size: 9px; }
+  .page .policy-section .policy-node p { font-size: 8px; }
+  .page .policy-section .policy-node small { margin-top: 2px; padding: 3px 5px; font-size: 8px; }
 }

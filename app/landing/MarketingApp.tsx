@@ -445,7 +445,7 @@ function MarketingApp() {
               <Eyebrow icon="spark">VISUAL POLICY BUILDER</Eyebrow>
               <h2>Define How<br />Your <span>AI Can Sell</span></h2>
               <p className="lede">Create merchant guardrails that your AI follows every time—approvals, discount limits, category restrictions, and more.</p>
-              <div className="cta-row"><ButtonLink href="/app/setup">Open Setup Copilot</ButtonLink><ButtonLink href="/app/setup" variant="secondary" icon="link">Explore policy docs</ButtonLink></div>
+              <div className="cta-row"><ButtonLink href="/demo">Book a demo</ButtonLink><ButtonLink href="/docs" variant="secondary" icon="link">Explore policy docs</ButtonLink></div>
               <div className="bullet-list">
                 <FeatureItem icon="route" title="No-code rule building" tone="amber">Drag, drop, and connect rules in minutes.</FeatureItem>
                 <FeatureItem icon="nodes" title="Deterministic policy runtime" tone="lilac">Consistent outcomes with versioned policies and safe fallbacks.</FeatureItem>
