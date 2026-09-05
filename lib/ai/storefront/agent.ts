@@ -376,12 +376,15 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const validationIssues = error instanceof z.ZodError
       ? error.issues.map((issue) => ({ path: issue.path.map(String).join("."), code: issue.code, message: issue.message }))
       : undefined;
-    console.error("[agentflow] storefront agent execution failed", {
-      name: error instanceof Error ? error.name : typeof error,
-      statusCode: typeof error === "object" && error !== null && "statusCode" in error ? String((error as { statusCode?: unknown }).statusCode ?? "") : undefined,
-      validationIssues,
-    });
-    await repository.recordAudit(context, { eventType: "TRANSACTION_FAILED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { reason: configuration ? "nim_not_configured" : "agent_execution_failed" } });
+    const partialProductResult = products.length > 0;
+    if (!partialProductResult) {
+      console.error("[agentflow] storefront agent execution failed", {
+        name: error instanceof Error ? error.name : typeof error,
+        statusCode: typeof error === "object" && error !== null && "statusCode" in error ? String((error as { statusCode?: unknown }).statusCode ?? "") : undefined,
+        validationIssues,
+      });
+    }
+    await repository.recordAudit(context, { eventType: partialProductResult ? "AGENT_TURN_COMPLETED" : "TRANSACTION_FAILED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { reason: partialProductResult ? "partial_product_result_recovered" : configuration ? "nim_not_configured" : "agent_execution_failed", validationIssues: validationIssues || null } });
     const shortlist = await getShortlist(context, sessionId).catch(() => ({ productIds: [] }));
     const text = products.length > 0
       ? customerFacingMessage("I found a few options for you.", products)
@@ -391,6 +394,6 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
           ? "The storefront assistant is temporarily unavailable. Please try again in a moment."
           : safeMessage;
     const latencyMs = Date.now() - turnStartedAt;
-    return { sessionId, message: text, status: providerUnavailable ? "PROVIDER_UNAVAILABLE" : products.length > 0 ? "COMPLETED" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, navigation: latestNavigation, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
+    return { sessionId, message: text, status: partialProductResult ? "COMPLETED" : providerUnavailable ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, navigation: latestNavigation, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
   }
 }
