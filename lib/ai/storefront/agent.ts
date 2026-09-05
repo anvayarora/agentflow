@@ -236,13 +236,30 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
   try {
     const agent = new ToolLoopAgent({ id: "agentflow-storefront", model: getNimModel(), instructions: `${STOREFRONT_AGENT_INSTRUCTIONS}\n${salesperson ? personaInstruction(salesperson, language) : "Use a concise customer-facing tone."}`, tools, providerOptions: { nvidiaNim: { chat_template_kwargs: { enable_thinking: true, force_nonempty_content: true } } }, stopWhen: isStepCount(4), temperature: 1, topP: 0.95, maxOutputTokens: 256 });
     const prompt = `Trusted storefront session context: currency=${session.currency}; language=${language}; preferences=${JSON.stringify(preferences)}; pageContext=${JSON.stringify(safePageContext)}; recentConversation=${JSON.stringify(priorConversation)}; latestResultProductIds=${JSON.stringify(priorResultSet.productIds)}.\nFor clear shopping intent you must use the appropriate typed tool. Follow-up ordinals refer to latestResultProductIds. Never invent a product or commercial result.\nCustomer request: ${message}`;
-    let result = await agent.generate({ prompt, timeout: { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 45_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 15_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
+    const generationTimeout = { totalMs: Number(process.env.AGENT_TOTAL_TIMEOUT_MS || 45_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 15_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) };
+    const repairPrompt = `${prompt}\nThis is a bounded repair attempt. The shopper asked for product discovery. Execute search_products now with the hard constraints you can infer; return NO_RESULTS if none match. Do not answer with unsupported prose.`;
+    let repaired = false;
+    let result;
+    try {
+      result = await agent.generate({ prompt, timeout: generationTimeout });
+    } catch (error) {
+      // A malformed provider tool call is recoverable once. Keep the retry in
+      // the same provider/tool boundary; never switch to a deterministic or
+      // mock answer while claiming the model completed the turn.
+      if (discoveryIntent(message) && products.length === 0 && !isProviderUnavailable(error)) {
+        repaired = true;
+        result = await agent.generate({ prompt: repairPrompt, timeout: { totalMs: Number(process.env.AGENT_REPAIR_TIMEOUT_MS || 20_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 10_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
+      } else {
+        throw error;
+      }
+    }
     // Nemotron occasionally returns a helpful paragraph without completing a
     // discovery tool call. One bounded repair keeps the provider in the loop
     // while guaranteeing that the turn either produces a structured result or
     // reports an honest retry state.
-    if (discoveryIntent(message) && products.length === 0 && !detailIntent(message) && !bundleIntent(message) && !cartIntent(message)) {
-      result = await agent.generate({ prompt: `${prompt}\nThis is a bounded repair attempt. The shopper asked for product discovery. Execute search_products now with the hard constraints you can infer; return NO_RESULTS if none match. Do not answer with unsupported prose.`, timeout: { totalMs: Number(process.env.AGENT_REPAIR_TIMEOUT_MS || 20_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 10_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
+    if (!repaired && discoveryIntent(message) && products.length === 0 && !detailIntent(message) && !bundleIntent(message) && !cartIntent(message)) {
+      repaired = true;
+      result = await agent.generate({ prompt: repairPrompt, timeout: { totalMs: Number(process.env.AGENT_REPAIR_TIMEOUT_MS || 20_000), stepMs: Number(process.env.AGENT_STEP_TIMEOUT_MS || 10_000), toolMs: Number(process.env.AGENT_TOOL_TIMEOUT_MS || 8_000) } });
     }
 
     const currentProductId = safePageContext.currentProductId;
@@ -348,7 +365,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const configuration = error instanceof NimConfigurationError;
     const providerUnavailable = isProviderUnavailable(error);
     const validationIssues = error instanceof z.ZodError
-      ? error.issues.map((issue) => ({ path: issue.path, code: issue.code }))
+      ? error.issues.map((issue) => ({ path: issue.path.map(String).join("."), code: issue.code, message: issue.message }))
       : undefined;
     console.error("[agentflow] storefront agent execution failed", {
       name: error instanceof Error ? error.name : typeof error,
