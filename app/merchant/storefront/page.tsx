@@ -1,1 +1,5 @@
-export { default } from "../connectors/page";
+import { redirect } from "next/navigation";
+
+export default function StorefrontPage() {
+  redirect("/app/storefront");
+}

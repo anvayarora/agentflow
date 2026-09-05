@@ -5081,3 +5081,31 @@ svg.brand-mark {
   .page .policy-section .policy-node p { font-size: 8px; }
   .page .policy-section .policy-node small { margin-top: 2px; padding: 3px 5px; font-size: 8px; }
 }
+
+/* Growth actions stay inside the canonical product console. */
+.growth-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: rgba(47, 37, 29, .28); backdrop-filter: blur(3px); }
+.growth-action-modal { width: min(560px, 100%); max-height: min(720px, calc(100vh - 48px)); overflow: auto; position: relative; padding: 25px; border: 1px solid #e2d6c9; border-radius: 16px; background: #fffdf9; box-shadow: 0 24px 70px rgba(52, 38, 26, .22); }
+.growth-modal-close { position: absolute; top: 17px; right: 17px; display: grid; place-items: center; padding: 6px; border: 0; color: #756b62; background: transparent; }
+.growth-modal-close:hover { color: #3f3832; background: #f7eee6; border-radius: 7px; }
+.growth-modal-kicker { display: flex; align-items: center; gap: 8px; color: var(--app-accent); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.growth-modal-kicker > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--app-accent); background: #fff0e9; }
+.growth-action-modal h2 { margin: 15px 0 4px; color: #332e2a; font-family: var(--serif); font-size: 28px; font-weight: 500; line-height: 1.1; }
+.growth-modal-subtitle { margin: 0; color: #81776f; font-size: 11px; }
+.growth-modal-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 22px 0; overflow: hidden; border: 1px solid var(--app-line-soft); border-radius: 9px; }
+.growth-modal-metrics > div { display: grid; gap: 4px; padding: 12px; background: #fffefa; }
+.growth-modal-metrics small { color: #8b8279; font-size: 9px; }
+.growth-modal-metrics b { color: #3e3833; font-size: 16px; line-height: 1.2; }
+.growth-modal-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--app-line-soft); }
+.growth-modal-section h3 { margin: 0 0 7px; color: #48413b; font-size: 12px; }
+.growth-modal-section p { margin: 0; color: #70675f; font-size: 11px; line-height: 1.55; }
+.growth-modal-list { display: grid; gap: 8px; margin: 11px 0 0; padding: 0; list-style: none; }
+.growth-modal-list li { display: flex; align-items: flex-start; gap: 8px; color: #655d56; font-size: 10px; line-height: 1.4; }
+.growth-modal-list svg { flex: none; color: #4d9369; }
+.growth-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 23px; }
+@media (max-width: 520px) {
+  .growth-modal-backdrop { padding: 12px; }
+  .growth-action-modal { padding: 19px; }
+  .growth-modal-metrics { grid-template-columns: 1fr; }
+  .growth-modal-actions { flex-direction: column-reverse; }
+  .growth-modal-actions .app-button { width: 100%; }
+}

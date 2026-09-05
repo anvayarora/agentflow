@@ -5,11 +5,11 @@ import { shopifyPreviewStore } from "../../lib/connectors";
 export type MerchantSection = "overview" | "onboarding" | "storefront" | "workflow" | "growth" | "catalog" | "approvals" | "activity" | "connectors";
 
 const links: Array<{ id: MerchantSection; label: string; href: string; icon: string }> = [
-  { id: "overview", label: "Overview", href: "/merchant", icon: "⌂" },
-  { id: "onboarding", label: "Setup Copilot", href: "/merchant/onboarding", icon: "✦" },
-  { id: "storefront", label: "Storefront", href: "/merchant/storefront", icon: "▣" },
-  { id: "growth", label: "Growth", href: "/merchant/growth", icon: "↗" },
-  { id: "approvals", label: "Approvals", href: "/merchant/approvals", icon: "◌" },
+  { id: "overview", label: "Overview", href: "/app/overview", icon: "⌂" },
+  { id: "onboarding", label: "Setup Copilot", href: "/app/setup", icon: "✦" },
+  { id: "storefront", label: "Storefront", href: "/app/storefront", icon: "▣" },
+  { id: "growth", label: "Growth", href: "/app/growth", icon: "↗" },
+  { id: "approvals", label: "Approvals", href: "/app/approvals", icon: "◌" },
 ];
 
 export function Brand() {

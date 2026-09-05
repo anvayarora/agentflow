@@ -1,7 +1,5 @@
-import { products, money } from "../../../lib/catalogue";
-import { Badge, MerchantShell, PageIntro } from "../merchant-ui";
-import BootstrapImport from "./BootstrapImport";
+import { redirect } from "next/navigation";
 
 export default function CataloguePage() {
-  return <MerchantShell active="catalog" title="Catalogue" description="The product context your connected experiences can use."><PageIntro eyebrow="Connected product data" title="A catalogue people can reason about." text="Haven Home Preview is connected to this seeded set. Missing or low-stock data stays visible before it becomes a customer promise." action={<Badge tone="success">6 products ready</Badge>} /><section className="workspace-card catalogue-card"><div className="table-toolbar"><div><span className="section-label">Haven Home Preview</span><h3>Product inventory</h3></div><a className="button button-light" href="/merchant/connectors">Manage connection <span>↗</span></a></div><div className="product-table"><div className="product-table-head"><span>Product</span><span>Category</span><span>Price</span><span>Inventory</span><span>Status</span></div>{products.map((product) => <div className="product-table-row" key={product.id}><div className="product-name-cell"><span className={`product-thumb ${product.art}`} /><span><strong>{product.name}</strong><small>{product.sku} · {product.finish}</small></span></div><span>{product.category}</span><span>{money(product.price)}</span><span>{product.stock} units</span><Badge tone={product.stock < 10 ? "warning" : "success"}>{product.stock < 10 ? "Watch" : "Ready"}</Badge></div>)}</div></section><BootstrapImport /></MerchantShell>;
+  redirect("/app/storefront");
 }

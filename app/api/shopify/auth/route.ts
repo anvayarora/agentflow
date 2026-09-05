@@ -79,7 +79,7 @@ export async function GET(request: Request) {
   const grantedScopes = (payload.scope || "").split(",").map((scope) => scope.trim()).filter(Boolean);
   if (!grantedScopes.includes("write_products")) return reject("Shopify did not grant write_products.", 403);
   await persistShopifyAdminAccessToken(context(request), shop, payload.access_token, grantedScopes);
-  const response = new Response(null, { status: 302, headers: { location: `${publicUrl()}/merchant/connectors?shopify=connected` } });
+  const response = new Response(null, { status: 302, headers: { location: `${publicUrl()}/app/storefront?shopify=connected` } });
   response.headers.set("set-cookie", "agentflow_shopify_oauth_state=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax");
   return response;
 }

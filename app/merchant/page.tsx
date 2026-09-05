@@ -1,5 +1,5 @@
-import CoreProductRoute from "../product/CoreProductRoute";
+import { redirect } from "next/navigation";
 
 export default function MerchantOverview() {
-  return <CoreProductRoute initialPath="/app/overview" />;
+  redirect("/app/overview");
 }
