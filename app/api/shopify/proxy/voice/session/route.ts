@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json().catch(() => ({})));
     const { context, session } = await getBoundShopifySession(request, body.sessionId);
-    const limit = await consumeRateLimit("VOICE_PREVIEW", `${context.organizationId}:${session.id}`);
+    const limit = await consumeRateLimit("VOICE_SESSION", `${context.organizationId}:${session.id}`);
     if (!limit.ok) return rateLimitResponse(limit.retryAfter);
     const view = await ensureVoiceSession(context, session.id, body.salespersonProfileId, body.language, body.voiceEnabled !== false);
     return Response.json(view);

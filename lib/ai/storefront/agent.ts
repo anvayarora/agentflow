@@ -52,7 +52,9 @@ const compareIntent = (message: string) => /\b(compare|comparison|dono\s+compare
 const accessoryIntent = (message: string) => /\b(accessor(?:y|ies)|goes?\s+with|pair(?:s|ing)?|saath|acha\s+lagega|go\s+with)\b/i.test(message);
 const bundleIntent = (message: string) => /\b(bundle|together|saath\s+lene|combo|set\s+mein)\b/i.test(message);
 const cartIntent = (message: string) => /\b(add|cart|bag|remove|quantity|qty|add\s+to|cart\s+mein|cart\s+me|badha|kam)\b/i.test(message);
-const negotiationIntent = (message: string) => /\b(discount|offer|negotiate|negotiat(?:e|ion)|price|expensive|cheaper|special\s+price|ho\s+sakta|possible)\b/i.test(message) || /(?:₹|rs\.?\s*)[\d,]+/i.test(message);
+const budgetConstraintIntent = (message: string) => /\b(under|below|up\s+to|within|max(?:imum)?|budget(?:\s+(?:is|of))?|andar|ke\s+andar|tak)\b/i.test(message);
+const explicitNegotiationIntent = (message: string) => /\b(discount|offer|negotiate|negotiat(?:e|ion)|expensive|cheaper|special\s+price|best\s+price|can\s+you\s+do|could\s+you\s+do|ho\s+sakta|possible)\b/i.test(message);
+const negotiationIntent = (message: string) => explicitNegotiationIntent(message) || (/(?:₹|rs\.?\s*)[\d,]+/i.test(message) && !budgetConstraintIntent(message) && !discoveryIntent(message));
 const checkoutIntent = (message: string) => /\b(checkout|pay|payment|buy|purchase|order|charge)\b/i.test(message);
 const explicitConfirmation = (message: string) => /^(?:yes|yeah|yep|haan|ha|hanji|continue|proceed|confirm|confirmed|go\s+ahead|kar\s+do|kardo|ठीक|हाँ)[.!\s]*$/iu.test(message.trim());
 const authorityClaim = (message: string) => /\b(employee|admin|vip|special\s+permission|ignore\s+(?:seller|store|merchant)|rules?\s+ignore|policy\s+ignore|main\s+(?:admin|employee))\b/i.test(message);
@@ -275,7 +277,10 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
       await repository.recordAudit(context, { eventType: "CART_UPDATED", entityType: "shopping_session", entityId: sessionId, shoppingSessionId: sessionId, metadata: { lineCount: merged.length } });
       return latestCart;
     }),
-    request_offer: callTool("request_offer", storefrontToolSchemas.request_offer, async (value) => { latestOffer = await requestOffer(context, { sessionId, ...value }); return latestOffer; }),
+    request_offer: callTool("request_offer", storefrontToolSchemas.request_offer, async (value) => {
+      if (isPlainDiscoveryRequest(message)) throw new Error("A shopper budget is a discovery constraint, not an offer request. Use search_products.");
+      latestOffer = await requestOffer(context, { sessionId, ...value }); return latestOffer;
+    }),
     accept_offer: callTool("accept_offer", storefrontToolSchemas.accept_offer, async (value) => { latestOffer = await acceptOffer(context, value.offerId); return latestOffer; }),
     request_approval: callTool("request_approval", storefrontToolSchemas.request_approval, async (value) => { latestApproval = await requestApproval(context, value.offerId); return latestApproval; }),
     get_approval_status: callTool("get_approval_status", storefrontToolSchemas.get_approval_status, async (value) => { latestApproval = await getApprovalStatus(context, value.approvalId); return latestApproval; }),
@@ -362,7 +367,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
       try { growthActions = (await getEligibleGrowthActions({ context, sessionId })).actions; } catch { growthActions = []; }
     }
 
-    const actionableNegotiation = /\b(discount|offer|negotiate|expensive|cheaper|special\s+price|ho\s+sakta|possible)\b|(?:₹|rs\.?\s*)[\d,]+/i.test(message);
+    const actionableNegotiation = negotiationIntent(message);
     if (actionableNegotiation && !latestOffer) {
       const sourceId = currentProductId || priorResultSet.productIds[0] || (products[0] && typeof products[0] === "object" && "id" in products[0] ? String((products[0] as { id: string }).id) : undefined);
       if (sourceId) {

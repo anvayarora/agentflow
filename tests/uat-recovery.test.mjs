@@ -65,6 +65,8 @@ test("commercial response guard rejects spoofed authority and preserves only tru
   assert.doesNotMatch(guarded, /sure|employee discount applied|80%/i);
   const counter = agent.safeCommerceClaim({ message: "Can you do ₹12,500?", text: "Sure!", offer: { outcome: "COUNTER", counterPricePaise: 1_295_000 } });
   assert.match(counter, /₹12,950/);
+  const discovery = agent.safeCommerceClaim({ message: "Show me a dark wood desk under ₹15,000", text: "I found a few desks.", offer: { outcome: "ALLOW", approvedPricePaise: 1_349_900 } });
+  assert.equal(discovery, "I found a few desks.");
 });
 
 test("shopper-facing narration redacts internal identifiers", () => {
@@ -116,6 +118,9 @@ test("storefront assistant uses explicit presentation states and safe co-browsin
   assert.match(source, /function beginCoBrowsing\(/);
   assert.match(source, /showNotification\(/);
   assert.match(source, /agentflow-ambient-voice/);
+  const toggleVoiceLine = source.split("\n").find((line) => line.includes("async function toggleVoiceMode")) || "";
+  assert.match(toggleVoiceLine, /await startRecording\(\)/);
+  assert.doesNotMatch(toggleVoiceLine, /startSpeechRecognition\(\)/);
   assert.match(stylesheet, /\.agentflow-panel\[hidden\] \{ display: none; \}/);
   assert.match(stylesheet, /overflow-wrap: anywhere/);
 });
