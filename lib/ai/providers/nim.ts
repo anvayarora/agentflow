@@ -101,7 +101,7 @@ export async function probeNimHealth(options: { timeoutMs?: number } = {}): Prom
     const response = await nimFetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ model, messages: [{ role: "system", content: "You are an AgentFlow provider health check." }, { role: "user", content: "Reply with exactly AGENTFLOW_NIM_OK." }], temperature: 0, max_tokens: 16, stream: false }),
+      body: JSON.stringify({ model, messages: [{ role: "system", content: "You are an AgentFlow provider health check." }, { role: "user", content: "Reply with exactly AGENTFLOW_NIM_OK." }], temperature: 0, max_tokens: 16, stream: false, chat_template_kwargs: { enable_thinking: false } }),
       signal: controller.signal,
     });
     const latencyMs = Date.now() - startedAt;
