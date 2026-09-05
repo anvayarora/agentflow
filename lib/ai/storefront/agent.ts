@@ -144,12 +144,23 @@ function isProviderUnavailable(error: unknown) {
 }
 
 function isRetryableProviderError(error: unknown) {
+  if (error instanceof z.ZodError) return true;
   if (!error || typeof error !== "object") return false;
   const record = error as { name?: unknown; message?: unknown; statusCode?: unknown };
   const name = typeof record.name === "string" ? record.name.toLowerCase() : "";
   const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
   const statusCode = typeof record.statusCode === "number" ? record.statusCode : undefined;
   return statusCode === 408 || statusCode === 429 || (statusCode !== undefined && statusCode >= 500) || name.includes("abort") || message.includes("timed out") || message.includes("timeout") || message.includes("econnreset") || message.includes("connection reset");
+}
+
+export function sanitizeBudgetClaims(text: string, maxPricePaise: number | undefined) {
+  if (maxPricePaise === undefined) return text;
+  const money = /(?:₹|rs\.?\s*)([\d,]+(?:\.\d{1,2})?)\s*(lakh|lac|k|thousand|hazaar|हज़ार)?/giu;
+  return text.replace(money, (match, raw: string, suffix?: string) => {
+    const multiplier = /lakh|lac/i.test(suffix || "") ? 100_000 : /k|thousand|hazaar|हज़ार/i.test(suffix || "") ? 1_000 : 1;
+    const amountPaise = Math.round(Number(raw.replace(/,/g, "")) * multiplier * 100);
+    return amountPaise > maxPricePaise ? "the budget you shared" : match;
+  }).replace(/within\s+your\s+the budget you shared\s+budget/giu, "within the budget you shared");
 }
 
 async function loadPreferences(context: TrustedRequestContext, sessionId: string) {
@@ -360,6 +371,7 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const resultProductIds = products.flatMap((product) => product && typeof product === "object" && "id" in product && typeof product.id === "string" ? [product.id] : []);
     if (!/\b(shortlist|saved|save\s+list)\b/i.test(message)) await saveResultSet(context, sessionId, resultProductIds);
     let text = customerFacingMessage(stripReasoningMarkers(result.text.trim()) || "I can help you explore the catalogue and your cart.", products);
+    if (discoveryIntent(message) && products.length > 0) text = sanitizeBudgetClaims(text, preferences.budgetMaxPaise);
     if (detailIntent(message) && currentProductId && products[0] && typeof products[0] === "object") text = productDetailMessage(message, products[0] as Record<string, unknown>);
     if (discoveryIntent(message) && products.length === 0 && !bundleIntent(message) && !shortlistIntent(message) && !cartIntent(message)) text = "I couldn’t find an exact match for those requirements. Would you like to relax one of them and see the closest alternatives?";
     if (bundleIntent(message) && growthActions.length === 0) text = "I don’t currently have an eligible bundle for those items. I can still suggest complementary pieces.";

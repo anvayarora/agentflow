@@ -71,6 +71,12 @@ test("shopper-facing narration redacts internal identifiers", () => {
   assert.match(safe, /Walnut Compact Desk/);
 });
 
+test("shopper discovery narration cannot widen a parsed Hinglish budget", () => {
+  const safe = agent.sanitizeBudgetClaims("Here is a desk within your ₹15 Lakh budget.", 1_500_000);
+  assert.equal(safe, "Here is a desk within the budget you shared.");
+  assert.equal(agent.sanitizeBudgetClaims("Here is a desk within ₹15,000.", 1_500_000), "Here is a desk within ₹15,000.");
+});
+
 test("storefront assistant uses explicit presentation states and safe co-browsing transitions", async () => {
   const source = await readFile(new URL("../shopify/extensions/agentflow-storefront/assets/agentflow-embed.js", import.meta.url), "utf8");
   const stylesheet = await readFile(new URL("../shopify/extensions/agentflow-storefront/assets/agentflow-embed.css", import.meta.url), "utf8");
