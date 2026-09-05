@@ -134,8 +134,9 @@ export async function getEligibleGrowthActions(input: { context: TrustedRequestC
     // Prefer a non-restricted product for the demo bundle. Aster remains a
     // valid hard-deny example, but it must not shadow an otherwise eligible
     // real desk when constructing a catalogue-backed growth path.
-    const primary = primaryCandidates.find((product) => product.brand !== "Aster") || primaryCandidates[0];
-    const secondary = primary ? products.find((product) => product.id !== primary.id && /lamp|lighting|accessor/i.test(`${product.name} ${product.category} ${product.tags.join(" ")}`) && product.stock > 0 && product.costPaise !== null) : undefined;
+    const primary = primaryCandidates.find((product) => product.brand !== "Aster" && /shopify/i.test(product.source)) || primaryCandidates.find((product) => product.brand !== "Aster") || primaryCandidates[0];
+    const secondaryCandidates = primary ? products.filter((product) => product.id !== primary.id && /lamp|lighting|accessor/i.test(`${product.name} ${product.category} ${product.tags.join(" ")}`) && product.stock > 0 && product.costPaise !== null) : [];
+    const secondary = secondaryCandidates.find((product) => /shopify/i.test(product.source)) || secondaryCandidates[0];
     if (primary && secondary) {
       const evaluation = evaluateCommerceAction({ organizationId: input.context.organizationId, policy, product: primary, customer, session, request: { quantity: 1, requestedDiscountBps: 0 } });
       const maxIncentiveBps = Math.min(500, evaluation.maxDiscountBps || 0);
