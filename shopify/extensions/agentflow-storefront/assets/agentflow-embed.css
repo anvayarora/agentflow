@@ -30,7 +30,7 @@
 }
 
 .agentflow-launcher:hover { transform: translateY(-1px); box-shadow: 0 20px 42px rgba(31, 43, 67, .26), 0 3px 10px rgba(31, 43, 67, .1); }
-.agentflow-launcher:focus-visible, .agentflow-panel button:focus-visible, .agentflow-panel input:focus-visible { outline: 3px solid rgba(195, 107, 79, .28); outline-offset: 2px; }
+.agentflow-launcher:focus-visible, .agentflow-panel button:focus-visible, .agentflow-panel input:focus-visible, .agentflow-notification-action:focus-visible, .agentflow-ambient-voice:focus-visible { outline: 3px solid rgba(195, 107, 79, .28); outline-offset: 2px; }
 .agentflow-launcher-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; color: #1e2a43; background: #f5c9ae; font-size: 15px; }
 
 #agentflow-storefront-assistant[data-presentation-state="PANEL_OPEN"] .agentflow-launcher,
