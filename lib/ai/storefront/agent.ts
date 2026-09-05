@@ -80,7 +80,7 @@ function isProviderUnavailable(error: unknown) {
   const record = error as { name?: unknown; message?: unknown; statusCode?: unknown };
   const name = typeof record.name === "string" ? record.name.toLowerCase() : "";
   const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
-  return typeof record.statusCode === "number" || name.includes("apicall") || name.includes("provider") || message.includes("nim request timed out");
+  return typeof record.statusCode === "number" || name.includes("apicall") || name.includes("provider") || name.includes("shopifyucp") || name.includes("abort") || message.includes("nim request timed out") || message.includes("shopify ucp request timed out");
 }
 
 async function loadPreferences(context: TrustedRequestContext, sessionId: string) {

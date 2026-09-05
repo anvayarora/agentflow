@@ -429,7 +429,8 @@ export class ShopifyUcpClient {
 
   private async fetchJson(url: string, init: RequestInit = {}): Promise<JsonRecord> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
+    const configuredTimeout = Number(env()?.SHOPIFY_UCP_TIMEOUT_MS || 20_000);
+    const timeout = setTimeout(() => controller.abort(), Number.isFinite(configuredTimeout) && configuredTimeout >= 5_000 && configuredTimeout <= 60_000 ? configuredTimeout : 20_000);
     try {
       const response = await fetch(url, { ...init, headers: { accept: "application/json", "content-type": "application/json", ...(init.headers || {}) }, signal: controller.signal });
       if (!response.ok) throw new ShopifyUcpError(`Shopify UCP returned HTTP ${response.status}.`, "UCP_HTTP_ERROR", response.status);
