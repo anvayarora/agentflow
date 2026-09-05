@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 const [catalogue, repositoryModule, shopperState, preferences, ucp, ui, agent] = await Promise.all([
   import("../lib/commerce/catalog-service.ts"),
@@ -68,4 +69,17 @@ test("shopper-facing narration redacts internal identifiers", () => {
   const safe = agent.customerFacingMessage("I found product gid://shopify/Product/123 with handle hh-off-desk-wal", [{ id: "desk-032", name: "Walnut Compact Desk" }]);
   assert.doesNotMatch(safe, /gid:\/\/|hh-off-desk-wal|desk-032/i);
   assert.match(safe, /Walnut Compact Desk/);
+});
+
+test("storefront assistant uses explicit presentation states and safe co-browsing transitions", async () => {
+  const source = await readFile(new URL("../shopify/extensions/agentflow-storefront/assets/agentflow-embed.js", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("../shopify/extensions/agentflow-storefront/assets/agentflow-embed.css", import.meta.url), "utf8");
+  for (const state of ["CLOSED", "LAUNCHER_ONLY", "PANEL_OPEN", "PANEL_MINIMIZED", "VOICE_ACTIVE", "COBROWSING", "NOTIFICATION_ONLY", "ATTENTION_REQUIRED", "ERROR"]) assert.match(source, new RegExp(`\\b${state}: "${state}"`));
+  assert.match(source, /close\.addEventListener\("click"/);
+  assert.match(source, /transition\(PRESENTATION\.LAUNCHER_ONLY, \{ stopVoice: true/);
+  assert.match(source, /function beginCoBrowsing\(/);
+  assert.match(source, /showNotification\(/);
+  assert.match(source, /agentflow-ambient-voice/);
+  assert.match(stylesheet, /\.agentflow-panel\[hidden\] \{ display: none; \}/);
+  assert.match(stylesheet, /overflow-wrap: anywhere/);
 });

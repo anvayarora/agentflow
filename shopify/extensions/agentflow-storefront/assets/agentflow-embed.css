@@ -33,6 +33,11 @@
 .agentflow-launcher:focus-visible, .agentflow-panel button:focus-visible, .agentflow-panel input:focus-visible { outline: 3px solid rgba(195, 107, 79, .28); outline-offset: 2px; }
 .agentflow-launcher-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; color: #1e2a43; background: #f5c9ae; font-size: 15px; }
 
+#agentflow-storefront-assistant[data-presentation-state="PANEL_OPEN"] .agentflow-launcher,
+#agentflow-storefront-assistant[data-presentation-state="VOICE_ACTIVE"] .agentflow-launcher,
+#agentflow-storefront-assistant[data-presentation-state="ATTENTION_REQUIRED"] .agentflow-launcher,
+#agentflow-storefront-assistant[data-presentation-state="ERROR"] .agentflow-launcher { display: none; }
+
 .agentflow-panel {
   display: flex;
   flex-direction: column;
@@ -44,7 +49,15 @@
   border-radius: 26px;
   background: #fcfaf7;
   box-shadow: 0 28px 90px rgba(42, 33, 28, .18), 0 6px 20px rgba(42, 33, 28, .08);
+  transform: translateY(8px) scale(.985);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform .2s ease, opacity .2s ease, visibility 0s linear .2s;
 }
+
+.agentflow-panel[hidden] { display: none; }
+.agentflow-panel:not([hidden]) { transform: translateY(0) scale(1); opacity: 1; visibility: visible; pointer-events: auto; transition-delay: 0s; }
 
 .agentflow-panel-header {
   display: flex;
@@ -152,13 +165,65 @@
 .agentflow-page-highlight { outline: 3px solid #d89070 !important; outline-offset: 5px !important; box-shadow: 0 0 0 8px rgba(216, 144, 112, .15) !important; }
 .agentflow-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
+.agentflow-notification {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(360px, calc(100vw - 24px));
+  margin: 0 0 10px auto;
+  padding: 11px 12px;
+  border: 1px solid #ead6cb;
+  border-radius: 14px;
+  color: #4c586c;
+  background: #fffdfa;
+  box-shadow: 0 12px 34px rgba(42, 33, 28, .14);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.agentflow-notification[hidden] { display: none; }
+.agentflow-notification-mark { display: grid; flex: 0 0 auto; width: 23px; height: 23px; place-items: center; border-radius: 50%; color: #a95840; background: #fff0e8; font-size: 12px; }
+.agentflow-notification-text { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.agentflow-notification-action { flex: 0 0 auto; padding: 6px 9px; border: 1px solid #e1b49f; border-radius: 999px; color: #a95840; background: #fff4ee; cursor: pointer; font-size: 9px; font-weight: 800; }
+.agentflow-notification-action:hover { color: #fff; background: #bd654c; }
+
+.agentflow-ambient-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  width: min(230px, calc(100vw - 24px));
+  margin: 0 0 10px auto;
+  padding: 9px 12px;
+  border: 1px solid #e8c5b3;
+  border-radius: 999px;
+  color: #3e4a61;
+  background: rgba(255, 253, 250, .96);
+  box-shadow: 0 12px 34px rgba(42, 33, 28, .14);
+  cursor: pointer;
+  text-align: left;
+}
+.agentflow-ambient-voice[hidden] { display: none; }
+.agentflow-ambient-mark { display: grid; flex: 0 0 auto; width: 26px; height: 26px; place-items: center; border-radius: 50%; color: #fff; background: #c87559; font-size: 9px; box-shadow: 0 0 0 5px #fff0e8; }
+.agentflow-ambient-copy { display: grid; min-width: 0; flex: 1; gap: 1px; }
+.agentflow-ambient-copy b { color: #2c3953; font-size: 10px; }
+.agentflow-ambient-copy small { color: #97939a; font-size: 8px; }
+.agentflow-ambient-wave { display: inline-flex; align-items: center; gap: 2px; height: 18px; }
+.agentflow-ambient-wave i { display: block; width: 3px; height: 8px; border-radius: 999px; background: #cf8063; animation: agentflow-wave .8s ease-in-out infinite alternate; }
+.agentflow-ambient-wave i:nth-child(2) { height: 15px; animation-delay: .15s; }
+.agentflow-ambient-wave i:nth-child(3) { height: 11px; animation-delay: .3s; }
+
 @keyframes agentflow-breathe { 0%, 100% { transform: scale(.96); opacity: .86; } 50% { transform: scale(1.04); opacity: 1; } }
 @keyframes agentflow-wave { from { transform: scaleY(.62); } to { transform: scaleY(1.08); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .agentflow-panel, .agentflow-launcher, .agentflow-guide-card { transition: none; }
+  .agentflow-voice-stage[data-state="listening"] .agentflow-voice-rings, .agentflow-voice-stage[data-state="thinking"] .agentflow-voice-bars i, .agentflow-voice-stage[data-state="speaking"] .agentflow-voice-bars i, .agentflow-ambient-wave i { animation: none; }
+}
 
 @media (max-width: 520px) {
   #agentflow-storefront-assistant { right: 8px; bottom: 10px; }
   .agentflow-launcher { min-height: 46px; padding-right: 14px; font-size: 12px; }
   .agentflow-panel { width: calc(100vw - 16px); max-width: calc(100vw - 16px); max-height: min(86vh, 720px); border-radius: 22px; }
+  .agentflow-notification, .agentflow-ambient-voice { width: calc(100vw - 16px); margin-bottom: 8px; }
   .agentflow-panel-header { padding: 14px 15px 13px; }.agentflow-guidance { padding: 14px 14px 11px; }.agentflow-guidance-heading h2 { font-size: 17px; }.agentflow-guides { gap: 5px; margin-top: 10px; }.agentflow-guide-card { padding: 8px 3px; border-radius: 13px; }.agentflow-guide-avatar { width: 44px; height: 44px; font-size: 16px; }.agentflow-guide-name { font-size: 10px; }.agentflow-guide-description { font-size: 8px; }.agentflow-language-row { gap: 7px; }.agentflow-language-row > span { font-size: 8px; }.agentflow-language-pills { gap: 4px; }.agentflow-language-pill { padding: 7px 4px; font-size: 9px; }.agentflow-mode-switch { margin: 10px 14px 0; }
   .agentflow-voice-view { padding: 6px 14px 14px; }.agentflow-voice-stage { width: 138px; height: 138px; }.agentflow-voice-rings { width: 88px; height: 88px; box-shadow: 0 0 0 14px #fbedE5, 0 0 0 27px #fff5f0; }.agentflow-voice-rings::before { inset: 13px; }.agentflow-voice-rings::after { inset: 27px; }.agentflow-voice-state { font-size: 17px; }.agentflow-voice-controls { margin-top: 13px; }.agentflow-try-card { margin-top: 13px; }
   .agentflow-messages { padding-right: 14px; padding-left: 14px; }.agentflow-chat-intro, .agentflow-suggestions { padding-right: 14px; padding-left: 14px; }.agentflow-form { padding-right: 10px; padding-left: 10px; }.agentflow-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }.agentflow-product-card img, .agentflow-product-placeholder { height: 78px; }.agentflow-product-copy { padding-right: 8px; padding-left: 8px; }.agentflow-product-actions { padding-right: 6px; padding-left: 6px; }
