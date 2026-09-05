@@ -1,5 +1,5 @@
 import { shopifyPreviewStore } from "../../../../lib/connectors";
-import { NIM_MODEL_ID } from "../../../../lib/ai/providers/nim";
+import { NIM_MODEL_ID, probeNimHealth } from "../../../../lib/ai/providers/nim";
 import { getShopifyUcpClient, ShopifyUcpError } from "../../../../lib/server/shopify/ucp";
 import { getDb, isDatabaseConfigured } from "../../../../db";
 import { organizations, policyVersions } from "../../../../db/schema";
@@ -42,10 +42,11 @@ export async function GET() {
   }
   const shopifyStatus = shopifyUcp.status === "SHOPIFY_UCP_CONNECTED" ? "HEALTHY" : "PROVIDER_DEGRADED";
   const nimConfigured = Boolean(values?.NIM_API_KEY);
+  const nimHealth = await probeNimHealth();
   const sarvamConfigured = Boolean(values?.SARVAM_API_KEY);
   const paymentStatus = razorpayTestConfigured || paymentProvider === "mock" ? "HEALTHY" : "PROVIDER_DEGRADED";
-  const providerStatuses = { database: databaseStatus, shopify: shopifyStatus, nim: nimConfigured ? "HEALTHY" : "PROVIDER_UNAVAILABLE", sarvam: sarvamConfigured ? "HEALTHY" : "PROVIDER_DEGRADED", payments: paymentStatus };
-  const appStatus = database.reachable && nimConfigured && (shopifyUcp.status === "SHOPIFY_UCP_CONNECTED" || paymentProvider === "mock") ? "APP_HEALTHY" : "PROVIDER_DEGRADED";
+  const providerStatuses = { database: databaseStatus, shopify: shopifyStatus, nim: nimHealth.status, sarvam: sarvamConfigured ? "CONFIGURED" : "PROVIDER_UNAVAILABLE", payments: paymentStatus };
+  const appStatus = database.reachable && nimHealth.status === "AVAILABLE" && (shopifyUcp.status === "SHOPIFY_UCP_CONNECTED" || paymentProvider === "mock") ? "APP_HEALTHY" : "PROVIDER_DEGRADED";
   return Response.json({
     generatedAt: new Date().toISOString(),
     status: appStatus,
@@ -57,6 +58,7 @@ export async function GET() {
         model: values?.NIM_MODEL_ID || NIM_MODEL_ID,
         endpoint: values?.NIM_BASE_URL || "https://integrate.api.nvidia.com/v1",
         mode: values?.NIM_API_KEY ? "live inference" : "provider unavailable",
+        health: nimHealth,
       },
       sarvam: {
         configured: sarvamConfigured,

@@ -33,7 +33,7 @@ export function updateShopperPreferences(message: string, previous: ShopperPrefe
   next.materials = add(["wood", "oak", "walnut", "metal", "marble", "linen", "cotton"], next.materials);
   next.colors = add(["black", "white", "blue", "green", "beige", "brown", "natural"], next.colors);
   next.styles = add(["minimal", "modern", "classic", "scandinavian", "contemporary", "rustic"], next.styles);
-  next.categories = add(["desk", "chair", "table", "sofa", "lighting", "accessories", "storage"], next.categories);
+  next.categories = add(["desk", "chair", "table", "sofa", "bed", "lighting", "accessories", "storage"], next.categories);
   const excluding = message.match(/(?:no|without|avoid)\s+([^,.!?]+?)(?=\s+(?:and|but|under|below|max|$)|[,.!?]|$)/i);
   if (excluding) next.exclusions = unique([...next.exclusions, excluding[1].trim()]);
   return shopperPreferencesSchema.parse(next);

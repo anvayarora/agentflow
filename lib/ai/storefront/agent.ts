@@ -66,6 +66,37 @@ function parseRequestedPrice(message: string) {
   return match ? Math.round(Number(match[1].replace(/,/g, "")) * 100) : undefined;
 }
 
+/**
+ * Extract only deterministic, high-confidence constraints for a product
+ * search. This is intentionally a narrow safety net for a provider outage;
+ * it never attempts to reproduce model interpretation or generate copy.
+ */
+export function deterministicDiscoveryConstraints(message: string, preferences: ShopperPreferences) {
+  const category = preferences.categories[0];
+  const material = preferences.materials.find((value) => ["wood", "walnut", "oak", "linen", "metal"].includes(value));
+  return {
+    query: message.slice(0, 120),
+    limit: 5,
+    ...(category ? { category } : {}),
+    ...(material ? { material } : {}),
+    ...(preferences.budgetMaxPaise === undefined ? {} : { maxPricePaise: preferences.budgetMaxPaise }),
+    ...(preferences.widthMaxCm === undefined ? {} : { maxWidthCm: preferences.widthMaxCm }),
+    ...(preferences.exclusions.length ? { excludeFrameType: preferences.exclusions.join(" ") } : {}),
+  };
+}
+
+function isPlainDiscoveryRequest(message: string) {
+  return discoveryIntent(message)
+    && !detailIntent(message)
+    && !shortlistIntent(message)
+    && !compareIntent(message)
+    && !accessoryIntent(message)
+    && !bundleIntent(message)
+    && !cartIntent(message)
+    && !checkoutIntent(message)
+    && !authorityClaim(message);
+}
+
 function ordinalIds(message: string, ids: string[]) {
   const selected: string[] = [];
   if (/\b(first|1st|pehla|pehli)\b/i.test(message) && ids[0]) selected.push(ids[0]);
@@ -400,24 +431,40 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
     const validationIssues = error instanceof z.ZodError
       ? error.issues.map((issue) => ({ path: issue.path.map(String).join("."), code: issue.code, message: issue.message }))
       : undefined;
+    let deterministicFallbackAttempted = false;
+    let deterministicFallbackCompleted = false;
+    if (isPlainDiscoveryRequest(message)) {
+      deterministicFallbackAttempted = true;
+      try {
+        const fallbackProducts = await searchProducts(context, session, deterministicDiscoveryConstraints(message, preferences));
+        products.push(...fallbackProducts);
+        deterministicFallbackCompleted = true;
+      } catch {
+        // A catalogue outage remains an honest provider-unavailable state.
+      }
+    }
     const partialProductResult = products.length > 0;
-    if (!partialProductResult) {
+    const recoveredDiscovery = deterministicFallbackAttempted && deterministicFallbackCompleted;
+    if (!partialProductResult && !recoveredDiscovery) {
       console.error("[agentflow] storefront agent execution failed", {
         name: error instanceof Error ? error.name : typeof error,
         statusCode: typeof error === "object" && error !== null && "statusCode" in error ? String((error as { statusCode?: unknown }).statusCode ?? "") : undefined,
         validationIssues,
       });
     }
-    await repository.recordAudit(context, { eventType: partialProductResult ? "AGENT_TURN_COMPLETED" : "TRANSACTION_FAILED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { reason: partialProductResult ? "partial_product_result_recovered" : configuration ? "nim_not_configured" : "agent_execution_failed", validationIssues: validationIssues || null } });
+    if (products.length > 0) await repository.recordAudit(context, { eventType: "PRODUCTS_SHOWN", entityType: "shopping_session", entityId: sessionId, shoppingSessionId: sessionId, metadata: { count: Math.min(products.length, 20), source: recoveredDiscovery ? "deterministic_provider_degradation" : "partial_provider_result" } });
+    await repository.recordAudit(context, { eventType: partialProductResult || recoveredDiscovery ? "AGENT_TURN_COMPLETED" : "TRANSACTION_FAILED", entityType: "agent_turn", entityId: id("turn"), shoppingSessionId: sessionId, metadata: { reason: recoveredDiscovery ? "deterministic_discovery_fallback" : partialProductResult ? "partial_product_result_recovered" : configuration ? "nim_not_configured" : "agent_execution_failed", validationIssues: validationIssues || null } });
     const shortlist = await getShortlist(context, sessionId).catch(() => ({ productIds: [] }));
     const text = products.length > 0
       ? customerFacingMessage("I found a few options for you.", products)
+      : recoveredDiscovery
+        ? "I couldn’t find any exact matches for those requirements. Would you like to relax one of them and see the closest alternatives?"
       : configuration
         ? "The storefront assistant is not enabled for this environment yet."
         : providerUnavailable
           ? "The storefront assistant is temporarily unavailable. Please try again in a moment."
           : safeMessage;
     const latencyMs = Date.now() - turnStartedAt;
-    return { sessionId, message: text, status: partialProductResult ? "COMPLETED" : providerUnavailable ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, navigation: latestNavigation, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
+    return { sessionId, message: text, status: partialProductResult || recoveredDiscovery ? "COMPLETED" : providerUnavailable ? "PROVIDER_UNAVAILABLE" : "FAILED", products, cart: latestCart, offer: latestOffer, approval: latestApproval, checkout: latestCheckout, navigation: latestNavigation, model: process.env.NIM_MODEL_ID || NIM_MODEL_ID, modelCalls: 0, toolSteps, ui: projectStorefrontUi({ message: text, products, shortlistProductIds: shortlist.productIds }), shortlist: shortlist.productIds, growthActions: [], latencyMs, timings: { totalMs: latencyMs, tools: toolTimings }, salesperson, language };
   }
 }

@@ -179,10 +179,12 @@ test("valid Shopify proxy request creates an anonymous server-owned session", as
   delete process.env.NIM_API_KEY;
   const response = await shopifyProxyRoute.POST(new Request(url, { method: "POST", body: JSON.stringify({ message: "Find a desk", storefrontContext: { pageType: "home", hintedProductId: "client-hint" } }), headers: { "content-type": "application/json" } }));
   if (previousNimKey) process.env.NIM_API_KEY = previousNimKey;
-  assert.equal(response.status, 503);
+  assert.equal(response.status, 200);
   const body = await response.json();
   assert.ok(body.sessionId);
-  assert.equal(body.status, "PROVIDER_UNAVAILABLE");
+  assert.equal(body.status, "COMPLETED");
+  assert.ok(Array.isArray(body.products));
+  assert.ok(body.products.length > 0);
   assert.notEqual(body.status, "AGENT_BACKEND_NOT_READY");
   assert.equal(body.connection.customerContext, "anonymous_shopify_customer");
 });

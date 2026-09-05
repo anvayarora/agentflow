@@ -5,6 +5,15 @@ import { request as httpsRequest } from "node:https";
 export const NIM_MODEL_ID = "nvidia/nemotron-3.5-lightning-30b-a3b";
 export const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
+export type NimHealthStatus = "AVAILABLE" | "DEGRADED" | "UNAVAILABLE";
+
+export type NimHealth = {
+  status: NimHealthStatus;
+  model: string;
+  latencyMs: number;
+  reason?: "NOT_CONFIGURED" | "AUTHENTICATION_FAILED" | "RATE_LIMITED" | "PROVIDER_ERROR" | "TIMEOUT" | "INVALID_RESPONSE";
+};
+
 /**
  * NVIDIA's hosted endpoint can leave a non-streaming response socket open in
  * some serverless egress paths. Keep the provider server-authoritative while
@@ -71,6 +80,51 @@ export class NimConfigurationError extends Error {
 
 export function nimConfigured() {
   return Boolean(typeof process !== "undefined" && process.env.NIM_API_KEY);
+}
+
+/**
+ * Run one minimal server-side provider check. The response body is inspected
+ * only for the expected marker and is never returned or logged. Callers should
+ * invoke this explicitly (for example, from an operator health check) rather
+ * than polling it as part of every shopper request.
+ */
+export async function probeNimHealth(options: { timeoutMs?: number } = {}): Promise<NimHealth> {
+  const model = typeof process !== "undefined" ? process.env.NIM_MODEL_ID || NIM_MODEL_ID : NIM_MODEL_ID;
+  const apiKey = typeof process !== "undefined" ? process.env.NIM_API_KEY : undefined;
+  if (!apiKey) return { status: "UNAVAILABLE", model, latencyMs: 0, reason: "NOT_CONFIGURED" };
+  const baseUrl = typeof process !== "undefined" ? process.env.NIM_BASE_URL || NIM_BASE_URL : NIM_BASE_URL;
+  const timeoutMs = Math.max(1_000, Math.min(options.timeoutMs || 8_000, 15_000));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+  try {
+    const response = await nimFetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model, messages: [{ role: "system", content: "You are an AgentFlow provider health check." }, { role: "user", content: "Reply with exactly AGENTFLOW_NIM_OK." }], temperature: 0, max_tokens: 16, stream: false }),
+      signal: controller.signal,
+    });
+    const latencyMs = Date.now() - startedAt;
+    if (response.status === 401 || response.status === 403) return { status: "UNAVAILABLE", model, latencyMs, reason: "AUTHENTICATION_FAILED" };
+    if (response.status === 429) return { status: "DEGRADED", model, latencyMs, reason: "RATE_LIMITED" };
+    if (response.status >= 500) return { status: "DEGRADED", model, latencyMs, reason: "PROVIDER_ERROR" };
+    if (!response.ok) return { status: "DEGRADED", model, latencyMs, reason: "PROVIDER_ERROR" };
+    try {
+      const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+      const content = payload.choices?.[0]?.message?.content;
+      return typeof content === "string" && content.trim() === "AGENTFLOW_NIM_OK"
+        ? { status: "AVAILABLE", model, latencyMs }
+        : { status: "DEGRADED", model, latencyMs, reason: "INVALID_RESPONSE" };
+    } catch {
+      return { status: "DEGRADED", model, latencyMs, reason: "INVALID_RESPONSE" };
+    }
+  } catch (error) {
+    const latencyMs = Date.now() - startedAt;
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    return { status: "DEGRADED", model, latencyMs, reason: message.includes("abort") || message.includes("timeout") ? "TIMEOUT" : "PROVIDER_ERROR" };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function getNimModel(): LanguageModel {

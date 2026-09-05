@@ -14,7 +14,10 @@ export async function POST(request: Request) {
     if (process.env.NODE_ENV === "production" && (!configuredToken || body.loginToken !== configuredToken)) return Response.json({ error: "Merchant authentication failed.", code: "MERCHANT_AUTH_FAILED" }, { status: 401 });
     const organizationId = process.env.AGENTFLOW_MERCHANT_ORGANIZATION_ID || demoOrganizationId();
     if (!organizationId) return Response.json({ error: "Merchant organization is not configured.", code: "MERCHANT_ORGANIZATION_NOT_CONFIGURED" }, { status: 424 });
-    const actorId = process.env.AGENTFLOW_MERCHANT_ACTOR_ID || "admin";
+    // The seeded Haven Home owner is demo-merchant. An explicit production
+    // actor override remains supported, but the default must match the normal
+    // persisted membership so authentication never creates an orphan session.
+    const actorId = process.env.AGENTFLOW_MERCHANT_ACTOR_ID || "demo-merchant";
     let role = ((process.env.AGENTFLOW_MERCHANT_ROLE || "ADMIN").toUpperCase()) as MerchantRole;
     if (!merchantRoles.includes(role)) role = "ADMIN";
     if (isDatabaseConfigured()) {

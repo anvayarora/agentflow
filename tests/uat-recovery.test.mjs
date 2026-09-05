@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
-const [catalogue, repositoryModule, shopperState, preferences, ucp, ui, agent] = await Promise.all([
+const [catalogue, repositoryModule, shopperState, preferences, ucp, ui, agent, nim] = await Promise.all([
   import("../lib/commerce/catalog-service.ts"),
   import("../lib/server/repositories/commerce.ts"),
   import("../lib/ai/storefront/shopper-state.ts"),
@@ -10,6 +10,7 @@ const [catalogue, repositoryModule, shopperState, preferences, ucp, ui, agent] =
   import("../lib/server/shopify/ucp.ts"),
   import("../lib/ai/storefront/ui.ts"),
   import("../lib/ai/storefront/agent.ts"),
+  import("../lib/ai/providers/nim.ts"),
 ]);
 
 const context = { organizationId: "uat-recovery-org", actorType: "customer", actorId: "shopify:anonymous", correlationId: "uat-recovery" };
@@ -75,6 +76,25 @@ test("shopper discovery narration cannot widen a parsed Hinglish budget", () => 
   const safe = agent.sanitizeBudgetClaims("Here is a desk within your ₹15 Lakh budget.", 1_500_000);
   assert.equal(safe, "Here is a desk within the budget you shared.");
   assert.equal(agent.sanitizeBudgetClaims("Here is a desk within ₹15,000.", 1_500_000), "Here is a desk within ₹15,000.");
+});
+
+test("provider degradation keeps discovery deterministic and budget bounded", () => {
+  const parsed = preferences.updateShopperPreferences("King-size solid walnut bed under ₹2,000.", preferences.emptyShopperPreferences);
+  const fallback = agent.deterministicDiscoveryConstraints("King-size solid walnut bed under ₹2,000.", parsed);
+  assert.equal(fallback.maxPricePaise, 200_000);
+  assert.equal(fallback.material, "walnut");
+  assert.equal(fallback.category, "bed");
+  assert.equal(fallback.query, "King-size solid walnut bed under ₹2,000.");
+});
+
+test("NIM health probe is safe when the server credential is absent", async () => {
+  const previous = process.env.NIM_API_KEY;
+  delete process.env.NIM_API_KEY;
+  try {
+    assert.deepEqual(await nim.probeNimHealth(), { status: "UNAVAILABLE", model: process.env.NIM_MODEL_ID || nim.NIM_MODEL_ID, latencyMs: 0, reason: "NOT_CONFIGURED" });
+  } finally {
+    if (previous) process.env.NIM_API_KEY = previous;
+  }
 });
 
 test("storefront assistant uses explicit presentation states and safe co-browsing transitions", async () => {
