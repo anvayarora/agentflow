@@ -313,11 +313,17 @@ export async function runStorefrontAgent(input: { context: TrustedRequestContext
       products.push(...compared);
     }
 
-    if (accessoryIntent(message) && products.length === 0) {
+    if (accessoryIntent(message)) {
       const sourceId = currentProductId || priorResultSet.productIds[0];
       if (sourceId) {
         const source = await getProduct(context, session, sourceId);
-        if (source) products.push(...await searchComplementaryProducts(context, session, source));
+        if (source) {
+          const complementary = await searchComplementaryProducts(context, session, source);
+          // Accessory intent is intentionally narrower than general discovery:
+          // never let a broad model search replace the contextual, server-side
+          // complementary set with unrelated primary furniture.
+          products.splice(0, products.length, ...complementary);
+        }
       }
     }
 
