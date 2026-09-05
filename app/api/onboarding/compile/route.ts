@@ -22,9 +22,10 @@ const extractJson = (content: string) => {
 };
 
 const compilerInstruction = `You are AgentFlow's policy compiler. Return JSON only as a proposed PolicyVersionIR. You may propose policy rules, but you may not publish them.
-Use only these condition fields: customer.segment, cart.totalPaise, cart.quantity, product.sku, product.category, product.brand, product.stock, product.costPaise, product.listPricePaise, product.tags.
+Use only these condition fields: customer.segment, request.discountBps, cart.totalPaise, cart.quantity, product.sku, product.category, product.brand, product.stock, product.costPaise, product.listPricePaise, product.tags.
 Use only these operators: equals, notEquals, greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual, in, notIn, includes.
 Use only these effects: SET_MAX_DISCOUNT_BPS, ADD_MAX_DISCOUNT_BPS, SET_MIN_MARGIN_BPS, REQUIRE_APPROVAL, DENY, ALLOW_BUNDLE, SET_QUANTITY_DISCOUNT, DISABLE_NEGOTIATION.
+For a request such as "up to 5% automatically, between 5% and 10% ask for approval", emit a 1000-bps maximum ceiling plus a REQUIRE_APPROVAL rule conditioned on request.discountBps greaterThan 500; the server runtime will counter anything above the 1000-bps ceiling. A margin floor is a global hard SET_MIN_MARGIN_BPS rule with an empty condition.
 Return the canonical tuple shape {"version":1,"rules":[{"condition":{"field":"customer.segment","operator":"equals","value":"repeat"},"effect":"SET_MAX_DISCOUNT_BPS 1500"}]}. Use one valid condition field per rule; use an empty condition object for global rules. Effect arguments must be integers. No JavaScript, expressions, eval, connector authority, or unknown fields. Use integer paise and basis points. Flag contradictions by leaving the rules explicit; a server validator will decide whether the draft is publishable.`;
 
 const genericOperators = new Set<string>(conditionOperators);

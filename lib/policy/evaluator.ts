@@ -51,6 +51,9 @@ function fieldValue(condition: PolicyCondition, context: CommerceEvaluationConte
   const { product, customer, session, request } = context;
   switch (condition.field) {
     case "customer.segment": return deriveSegment(customer);
+    case "request.discountBps": return request.requestedPricePaise !== undefined
+      ? calculateDiscountBps(product.listPricePaise, Math.max(0, Math.min(product.listPricePaise, request.requestedPricePaise)))
+      : request.requestedDiscountBps ?? 0;
     // A live session cart already contains canonical line totals. Simulation
     // contexts may provide an empty cart, in which case derive the requested
     // line total once. Never double-count the requested item.

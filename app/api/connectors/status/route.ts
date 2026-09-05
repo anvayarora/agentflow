@@ -42,7 +42,10 @@ export async function GET() {
   }
   const shopifyStatus = shopifyUcp.status === "SHOPIFY_UCP_CONNECTED" ? "HEALTHY" : "PROVIDER_DEGRADED";
   const nimConfigured = Boolean(values?.NIM_API_KEY);
-  const nimHealth = await probeNimHealth();
+  // Status is an operator-facing health check. Give the hosted provider a
+  // bounded 15s window so a slow but healthy inference does not make the
+  // whole connector panel report a false degradation.
+  const nimHealth = await probeNimHealth({ timeoutMs: 15_000 });
   const sarvamConfigured = Boolean(values?.SARVAM_API_KEY);
   const paymentStatus = razorpayTestConfigured || paymentProvider === "mock" ? "HEALTHY" : "PROVIDER_DEGRADED";
   const providerStatuses = { database: databaseStatus, shopify: shopifyStatus, nim: nimHealth.status, sarvam: sarvamConfigured ? "CONFIGURED" : "PROVIDER_UNAVAILABLE", payments: paymentStatus };

@@ -32,6 +32,7 @@ export type PolicyValidationResult = {
 };
 
 const numericFields = new Set<ConditionField>([
+  "request.discountBps",
   "cart.totalPaise",
   "cart.quantity",
   "product.stock",

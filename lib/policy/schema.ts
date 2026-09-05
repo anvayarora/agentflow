@@ -5,6 +5,7 @@ export const policySources = ["nim", "demo-fallback", "merchant", "system"] as c
 
 export const conditionFields = [
   "customer.segment",
+  "request.discountBps",
   "cart.totalPaise",
   "cart.quantity",
   "product.sku",

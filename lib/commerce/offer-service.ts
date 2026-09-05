@@ -3,6 +3,7 @@ import { evaluateCommerceAction, type CommerceEvaluation } from "../policy/evalu
 import { getCommerceRepository, type SessionRecord } from "../server/repositories/commerce";
 import type { TrustedRequestContext } from "../server/context";
 import { getRuntimeStore, runtimeKinds, type RuntimeRecord } from "../server/runtime/store";
+import { listProductMappings } from "../server/repositories/bootstrap";
 import { hashCart, type CanonicalCart } from "./cart";
 import { getCart, getProduct as getCatalogueProduct } from "./catalog-service";
 
@@ -67,6 +68,15 @@ export async function requestOffer(context: TrustedRequestContext, input: { sess
   const [customer, policy] = await Promise.all([repository.getCustomer(context, session.customerId), repository.getCurrentPolicy(context)]);
   let product = await repository.getProduct(context, input.productId);
   const productIsPersisted = Boolean(product);
+  // A live Shopify session addresses products by Shopify GID, while private
+  // economics live on the canonical AgentFlow product. Resolve only an
+  // organization-scoped, persisted mapping; never infer cost from storefront
+  // data and never trust a browser-supplied price/cost.
+  if (!product && session.shopifyShopDomain) {
+    const mappings = await listProductMappings(context, session.shopifyShopDomain);
+    const mapping = mappings.find((item) => item.shopifyProductGid === input.productId || item.shopifyVariantGid === input.productId || item.shopifyVariantGid === input.variantId);
+    if (mapping) product = await repository.getProduct(context, mapping.productId);
+  }
   if (!product && session.shopifyShopDomain) {
     const publicProduct = await getCatalogueProduct(context, session, input.productId);
     if (publicProduct && "title" in publicProduct) {

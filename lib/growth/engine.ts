@@ -130,7 +130,11 @@ export async function getEligibleGrowthActions(input: { context: TrustedRequestC
   // bound its incentive through the published policy before exposing it.
   if (!plays.length && String(process.env.DEMO_MODE).toLowerCase() === "true") {
     const products = await commerce.listProducts(input.context);
-    const primary = products.find((product) => /desk|workspace|office/i.test(`${product.name} ${product.category} ${product.tags.join(" ")}`) && /walnut|wood/i.test(`${product.name} ${product.attributes.finish || ""} ${product.tags.join(" ")}`) && product.stock > 0 && product.costPaise !== null);
+    const primaryCandidates = products.filter((product) => /desk|workspace|office/i.test(`${product.name} ${product.category} ${product.tags.join(" ")}`) && /walnut|wood/i.test(`${product.name} ${product.attributes.finish || ""} ${product.tags.join(" ")}`) && product.stock > 0 && product.costPaise !== null);
+    // Prefer a non-restricted product for the demo bundle. Aster remains a
+    // valid hard-deny example, but it must not shadow an otherwise eligible
+    // real desk when constructing a catalogue-backed growth path.
+    const primary = primaryCandidates.find((product) => product.brand !== "Aster") || primaryCandidates[0];
     const secondary = primary ? products.find((product) => product.id !== primary.id && /lamp|lighting|accessor/i.test(`${product.name} ${product.category} ${product.tags.join(" ")}`) && product.stock > 0 && product.costPaise !== null) : undefined;
     if (primary && secondary) {
       const evaluation = evaluateCommerceAction({ organizationId: input.context.organizationId, policy, product: primary, customer, session, request: { quantity: 1, requestedDiscountBps: 0 } });
