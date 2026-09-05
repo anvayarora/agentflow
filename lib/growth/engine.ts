@@ -1,5 +1,5 @@
 import { calculateGrossMarginBps } from "../domain/money";
-import { toPublicProduct } from "../domain/catalogue";
+import { toPublicProduct, type CanonicalProduct } from "../domain/catalogue";
 import { evaluateCommerceAction } from "../policy/evaluator";
 import { getCommerceRepository } from "../server/repositories/commerce";
 import { getGrowthRepository } from "../server/repositories/growth";
@@ -124,7 +124,26 @@ export async function getEligibleGrowthActions(input: { context: TrustedRequestC
   const policy = await commerce.getCurrentPolicy(input.context);
   const customer = await commerce.getCustomer(input.context, session.customerId);
   if (!policy || !customer) throw new Error("Current policy and customer context are required.");
-  const plays = (await growth.listPlays(input.context)).filter((play) => play.status === "ACTIVE" && (!play.expiresAt || Date.parse(play.expiresAt) > Date.now()));
+  let plays = (await growth.listPlays(input.context)).filter((play) => play.status === "ACTIVE" && (!play.expiresAt || Date.parse(play.expiresAt) > Date.now()));
+  // The demo store needs one honest, persisted bundle path for UAT. Create it
+  // lazily from real catalogue records (never fabricated UI products) and
+  // bound its incentive through the published policy before exposing it.
+  if (!plays.length && String(process.env.DEMO_MODE).toLowerCase() === "true") {
+    const products = await commerce.listProducts(input.context);
+    const primary = products.find((product) => /desk|workspace|office/i.test(`${product.name} ${product.category} ${product.tags.join(" ")}`) && /walnut|wood/i.test(`${product.name} ${product.attributes.finish || ""} ${product.tags.join(" ")}`) && product.stock > 0 && product.costPaise !== null);
+    const secondary = primary ? products.find((product) => product.id !== primary.id && /lamp|lighting|accessor/i.test(`${product.name} ${product.category} ${product.tags.join(" ")}`) && product.stock > 0 && product.costPaise !== null) : undefined;
+    if (primary && secondary) {
+      const evaluation = evaluateCommerceAction({ organizationId: input.context.organizationId, policy, product: primary, customer, session, request: { quantity: 1, requestedDiscountBps: 0 } });
+      const maxIncentiveBps = Math.min(500, evaluation.maxDiscountBps || 0);
+      if (evaluation.outcome !== "DENY" && maxIncentiveBps > 0) {
+        const opportunityId = `demo-bundle-${primary.id}-${secondary.id}`;
+        const existingOpportunity = await growth.getOpportunity(input.context, opportunityId);
+        if (!existingOpportunity) await growth.createOpportunity(input.context, { id: opportunityId, type: "BUNDLE", sourceSignalIds: [], primaryProductId: primary.id, secondaryProductIds: [secondary.id], proposedAction: { action: "PRIVATE_BUNDLE", maxIncentiveBps, source: "demo-real-catalogue" }, estimatedImpact: { kind: "SIMULATED", potentialIncrementalAovPaise: secondary.listPricePaise, salesHistory: "INSUFFICIENT_HISTORY" }, evidence: { primaryProductId: primary.id, secondaryProductId: secondary.id, dataQuality: "OBSERVED" }, riskFlags: [], policyCompatibility: "COMPATIBLE", scoreBps: 7_500, status: "READY" });
+        const play = await growth.createPlay(input.context, { id: `demo-play-${primary.id}-${secondary.id}`, opportunityId, primaryProductId: primary.id, secondaryProductIds: [secondary.id], eligibility: { source: "demo-real-catalogue", cartBinding: true }, commercialStrategy: { type: "BUNDLE", maxIncentiveBps }, maxIncentiveBps, minimumMarginBps: minimumMarginBps(policy), requiredPolicyChecks: ["published_policy", "margin_floor", "inventory"], customerEligibility: { segment: "all" }, frequencyLimit: { perSession: 1 }, expiresAt: null, approvalRequired: false, status: "ACTIVE" });
+        plays = [play];
+      }
+    }
+  }
   const actions = [];
   for (const play of plays) {
     const primary = await commerce.getProduct(input.context, play.primaryProductId);
@@ -137,7 +156,10 @@ export async function getEligibleGrowthActions(input: { context: TrustedRequestC
     }
     await commerce.recordAudit(input.context, { eventType: "GROWTH_ACTION_AUTHORIZED", entityType: "growth_play", entityId: play.id, shoppingSessionId: session.id, policyVersionId: policy.id, metadata: { maxIncentiveBps: play.maxIncentiveBps } });
     await commerce.recordAudit(input.context, { eventType: "GROWTH_PLAY_PRESENTED", entityType: "growth_play", entityId: play.id, shoppingSessionId: session.id, policyVersionId: policy.id, metadata: { maxIncentiveBps: play.maxIncentiveBps, productId: primary.id } });
-    actions.push({ playId: play.id, type: play.commercialStrategy.type || "PRIVATE_INCENTIVE", product: toPublicProduct(primary), secondaryProductIds: play.secondaryProductIds, maxIncentiveBps: play.maxIncentiveBps, requiresPolicyRuntime: true });
+    const secondaryProducts = (await Promise.all(play.secondaryProductIds.map((productId) => commerce.getProduct(input.context, productId))))
+      .filter((product): product is CanonicalProduct => Boolean(product))
+      .map(toPublicProduct);
+    actions.push({ playId: play.id, type: play.commercialStrategy.type || "PRIVATE_INCENTIVE", product: toPublicProduct(primary), secondaryProductIds: play.secondaryProductIds, secondaryProducts, bundle: play.commercialStrategy.type === "BUNDLE" ? { individualTotalPaise: primary.listPricePaise + secondaryProducts.reduce((sum, product) => sum + product.listPricePaise, 0), maxIncentiveBps: play.maxIncentiveBps, savingsPaise: Math.round((primary.listPricePaise + secondaryProducts.reduce((sum, product) => sum + product.listPricePaise, 0)) * play.maxIncentiveBps / 10_000) } : undefined, maxIncentiveBps: play.maxIncentiveBps, requiresPolicyRuntime: true });
   }
   return { sessionId: input.sessionId, actions };
 }

@@ -5,6 +5,7 @@ import { getCommerceRepository, type SessionRecord } from "../../server/reposito
 import { getProduct } from "../../commerce/catalog-service";
 
 const shortlistSchema = z.object({ productIds: z.array(z.string().min(1).max(255)).max(12) }).strict();
+const resultSetSchema = z.object({ productIds: z.array(z.string().min(1).max(255)).max(20) }).strict();
 export const pageContextSchema = z.object({ pageType: z.enum(["home", "collection", "product", "search", "cart", "other"]).default("other"), currentProductId: z.string().max(255).optional(), currentCollection: z.string().max(120).optional(), url: z.string().url().max(2048).optional() }).strict();
 export type ShopperPageContext = z.infer<typeof pageContextSchema>;
 
@@ -18,6 +19,23 @@ export async function getShortlist(context: TrustedRequestContext, sessionId: st
   await session(context, sessionId);
   const record = await getRuntimeStore().get<{ productIds: string[] }>(context, runtimeKinds.shortlist, sessionId);
   return shortlistSchema.parse(record?.payload || { productIds: [] });
+}
+
+/** The latest server-owned result set gives follow-up language such as
+ * "first one", "save the third", and "compare these" stable references.
+ * It is deliberately IDs-only; public product details are reloaded from the
+ * canonical catalogue before being returned to a shopper. */
+export async function saveResultSet(context: TrustedRequestContext, sessionId: string, productIds: string[]) {
+  await session(context, sessionId);
+  const next = resultSetSchema.parse({ productIds: [...new Set(productIds)].slice(0, 20) });
+  await getRuntimeStore().put(context, { id: sessionId, kind: runtimeKinds.resultSet, status: "ACTIVE", payload: next });
+  return next;
+}
+
+export async function getResultSet(context: TrustedRequestContext, sessionId: string) {
+  await session(context, sessionId);
+  const record = await getRuntimeStore().get<{ productIds: string[] }>(context, runtimeKinds.resultSet, sessionId);
+  return resultSetSchema.parse(record?.payload || { productIds: [] });
 }
 
 export async function updateShortlist(context: TrustedRequestContext, sessionId: string, input: { add?: string[]; remove?: string[]; replace?: string[] }) {
@@ -50,4 +68,10 @@ export async function appendConversation(context: TrustedRequestContext, session
   const messages = [...(existing?.payload.messages || []), { role: message.role, text: message.text }].slice(-40);
   await getRuntimeStore().put(context, { id: sessionId, kind: runtimeKinds.conversation, status: "ACTIVE", payload: { messages } });
   return messages;
+}
+
+export async function getConversation(context: TrustedRequestContext, sessionId: string) {
+  await session(context, sessionId);
+  const existing = await getRuntimeStore().get<{ messages: Array<{ role: "user" | "assistant"; text: string }> }>(context, runtimeKinds.conversation, sessionId);
+  return (existing?.payload.messages || []).slice(-12);
 }

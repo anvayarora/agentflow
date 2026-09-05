@@ -18,6 +18,7 @@ const base = z.object({ message: z.string().max(2_000), actions: z.array(actionS
 export const storefrontUiSurfaceSchema = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("TEXT") }),
   base.extend({ type: z.literal("PRODUCT_GRID"), productIds: z.array(productId).max(20) }),
+  base.extend({ type: z.literal("NO_RESULTS"), productIds: z.array(productId).max(20) }),
   base.extend({ type: z.literal("PRODUCT_SPOTLIGHT"), productIds: z.array(productId).min(1).max(4) }),
   base.extend({ type: z.literal("SHORTLIST"), productIds: z.array(productId).max(12) }),
   base.extend({ type: z.literal("COMPARISON"), productIds: z.array(productId).min(2).max(4) }),
@@ -52,6 +53,7 @@ export function projectStorefrontUi(input: { message: string; products?: unknown
   }
   if (input.cart) return storefrontUiSurfaceSchema.parse({ type: "CART_UPDATE", message: input.message, productIds, actions: [{ type: "OPEN_CART" }, ...actions] });
   if (input.shortlistProductIds?.length) return storefrontUiSurfaceSchema.parse({ type: "SHORTLIST", message: input.message, productIds: input.shortlistProductIds, actions: input.shortlistProductIds.slice(0, 4).map((id) => ({ type: "VIEW_PRODUCT", productId: id })) });
+  if (/no exact match|couldn.t find|none of these|no eligible/i.test(input.message) && productIds.length === 0) return storefrontUiSurfaceSchema.parse({ type: "NO_RESULTS", message: input.message, productIds: [], actions: [] });
   if (productIds.length) return storefrontUiSurfaceSchema.parse({ type: "PRODUCT_GRID", message: input.message, productIds, actions });
   return storefrontUiSurfaceSchema.parse({ type: "TEXT", message: input.message, actions: [] });
 }

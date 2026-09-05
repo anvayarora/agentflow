@@ -49,13 +49,28 @@ export type ShopifyUcpProduct = {
   media: string[];
   tags: string[];
   collections: Array<{ id: string; handle?: string; title?: string }>;
+  attributes?: Record<string, unknown>;
   raw: JsonRecord;
 };
 
-export type PublicShopifyUcpProduct = Omit<ShopifyUcpProduct, "raw">;
+export type PublicShopifyUcpProduct = Omit<ShopifyUcpProduct, "raw" | "handle"> & { productUrl?: string };
 
 export function toPublicShopifyProduct(product: ShopifyUcpProduct): PublicShopifyUcpProduct {
-  return Object.fromEntries(Object.entries(product).filter(([key]) => key !== "raw")) as PublicShopifyUcpProduct;
+  const publicProduct: PublicShopifyUcpProduct = {
+    id: product.id,
+    title: product.title,
+    description: product.description,
+    currency: product.currency,
+    priceMinorUnits: product.priceMinorUnits,
+    variants: product.variants,
+    media: product.media,
+    tags: product.tags,
+    collections: product.collections,
+    ...(product.attributes ? { attributes: product.attributes } : {}),
+  };
+  return product.handle
+    ? { ...publicProduct, productUrl: `/products/${encodeURIComponent(product.handle)}` }
+    : publicProduct;
 }
 
 export type ShopifyUcpCartLine = {
@@ -248,11 +263,21 @@ function mapProduct(value: unknown): ShopifyUcpProduct | null {
       checkoutUrl: asString(variant.checkout_url),
     }];
   }) : [];
+  const rawAttributes = asRecord(product.attributes || product.specifications || product.options);
+  const attributes = Object.fromEntries(Object.entries(rawAttributes).filter(([key]) => /^(width|height|depth|length|dimension|size|material|finish|colour|color|storage|drawer|variant|capacity|style|weight)/i.test(key)));
+  const descriptionText = mapDescription(product.description);
+  const dimensionMatch = descriptionText.match(/(\d+(?:\.\d+)?)\s*cm\s*[Ww](?:idth)?\s*[×x*]\s*(\d+(?:\.\d+)?)\s*cm\s*[Dd](?:epth)?\s*[×x*]\s*(\d+(?:\.\d+)?)\s*cm\s*[Hh](?:eight)?/);
+  if (dimensionMatch && attributes.width === undefined) attributes.width = Number(dimensionMatch[1]);
+  if (attributes.storage === undefined && /\b(drawer|drawers|storage|cabinet|shelf|shelves)\b/i.test(descriptionText)) attributes.storage = true;
+  if (attributes.material === undefined) {
+    const material = descriptionText.match(/\b(?:solid\s+)?(?:walnut|oak|wood|linen|cane|brass|ceramic|leather|cotton|veneer)[^,.]*/i)?.[0];
+    if (material) attributes.material = material.trim();
+  }
   return {
     id,
     title,
     handle: asString(product.handle),
-    description: mapDescription(product.description),
+    description: descriptionText,
     currency,
     priceMinorUnits: asNumber(min.amount) || variants[0]?.priceMinorUnits || 0,
     variants,
@@ -263,6 +288,7 @@ function mapProduct(value: unknown): ShopifyUcpProduct | null {
       const collectionId = asString(collection.id);
       return collectionId ? [{ id: collectionId, handle: asString(collection.handle), title: asString(collection.title) }] : [];
     }) : [],
+    ...(Object.keys(attributes).length ? { attributes } : {}),
     raw: product,
   };
 }

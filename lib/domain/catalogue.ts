@@ -18,13 +18,11 @@ export type CanonicalProduct = {
   sourceUpdatedAt: Date | null;
 };
 
-export type PublicProduct = Omit<CanonicalProduct, "organizationId" | "costPaise">;
+export type PublicProduct = Omit<CanonicalProduct, "organizationId" | "costPaise" | "externalId" | "sku" | "source" | "sourceUpdatedAt">;
 
 export function toPublicProduct(product: CanonicalProduct): PublicProduct {
   return {
     id: product.id,
-    externalId: product.externalId,
-    sku: product.sku,
     name: product.name,
     description: product.description,
     category: product.category,
@@ -35,7 +33,5 @@ export function toPublicProduct(product: CanonicalProduct): PublicProduct {
     attributes: product.attributes,
     tags: product.tags,
     imageUrl: product.imageUrl,
-    source: product.source,
-    sourceUpdatedAt: product.sourceUpdatedAt,
   };
 }

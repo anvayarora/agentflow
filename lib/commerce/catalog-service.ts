@@ -43,7 +43,7 @@ function ucpClient(session: SessionRecord) {
   return getShopifyUcpClient({ shopDomain: session.shopifyShopDomain });
 }
 
-type ShopperConstraints = { query: string; limit?: number; category?: string; maxPricePaise?: number; maxWidthCm?: number; material?: string; finish?: string; excludeFrameType?: string };
+export type ShopperConstraints = { query: string; limit?: number; category?: string; maxPricePaise?: number; maxWidthCm?: number; material?: string; finish?: string; excludeFrameType?: string; availability?: "in_stock" };
 
 function textForProduct(product: ShopifyUcpProduct | { name: string; description: string; category: string; brand?: string | null; tags: string[]; attributes: Record<string, unknown> }) {
   if ("title" in product) return `${product.title} ${product.description} ${product.tags.join(" ")} ${product.collections.map((collection) => collection.title || "").join(" ")} ${JSON.stringify(product.raw)}`.toLowerCase();
@@ -60,7 +60,7 @@ function extractedWidthCm(product: ShopifyUcpProduct | { attributes: Record<stri
   return value ? Number(value) : null;
 }
 
-function matchesShopperConstraints(product: ShopifyUcpProduct | { name: string; description: string; category: string; brand?: string | null; tags: string[]; attributes: Record<string, unknown>; listPricePaise: number; currency: string }, input: ShopperConstraints) {
+function matchesShopperConstraints(product: ShopifyUcpProduct | { name: string; description: string; category: string; brand?: string | null; tags: string[]; attributes: Record<string, unknown>; listPricePaise: number; currency: string; stock: number }, input: ShopperConstraints) {
   const haystack = textForProduct(product);
   if (input.category && !haystack.includes(input.category.toLowerCase())) return false;
   if (input.maxPricePaise !== undefined) {
@@ -75,23 +75,77 @@ function matchesShopperConstraints(product: ShopifyUcpProduct | { name: string; 
     const width = extractedWidthCm(product);
     if (width === null || width > input.maxWidthCm) return false;
   }
+  if (input.availability === "in_stock") {
+    if ("priceMinorUnits" in product) {
+      if (product.variants.length > 0 && !product.variants.some((variant) => variant.available !== false)) return false;
+    } else if (product.stock <= 0) return false;
+  }
   return true;
 }
 
+function queryTokens(query: string) {
+  return query.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter((token) => token.length > 1 && !["the", "and", "for", "with", "from", "under", "below", "show", "me", "please", "mujhe", "chahiye", "ke", "liye", "hai", "do", "ek", "a", "an"].includes(token));
+}
+
+function queryMatchesProduct(product: ShopifyUcpProduct | { name: string; description: string; category: string; brand?: string | null; tags: string[]; attributes: Record<string, unknown> }, query: string) {
+  const haystack = textForProduct(product);
+  const tokens = queryTokens(query);
+  if (!tokens.length) return true;
+  const synonyms: Record<string, string[]> = {
+    desk: ["desk", "workspace", "home office", "writing"],
+    table: ["table", "desk", "console"],
+    wood: ["wood", "walnut", "oak", "veneer", "ash", "cane"],
+    wooden: ["wood", "walnut", "oak", "veneer", "ash"],
+    dark: ["dark", "walnut", "smoked", "charcoal", "black"],
+    work: ["work", "desk", "workspace", "office"],
+    home: ["home", "office", "living", "bedroom"],
+    accessory: ["accessor", "lamp", "organizer", "tray", "lighting"],
+    accessories: ["accessor", "lamp", "organizer", "tray", "lighting"],
+    lamp: ["lamp", "lighting"],
+    sofa: ["sofa", "couch"],
+    bed: ["bed", "bedroom"],
+  };
+  const matches = tokens.filter((token) => (synonyms[token] || [token]).some((candidate) => haystack.includes(candidate)));
+  return matches.length >= Math.max(1, Math.ceil(tokens.length * 0.45));
+}
+
+function normalizedSearchInput(input: ShopperConstraints): ShopperConstraints {
+  return { ...input, availability: "in_stock" };
+}
+
 export async function searchProducts(context: TrustedRequestContext, session: SessionRecord, input: ShopperConstraints) {
+  const constraints = normalizedSearchInput(input);
   if (liveShopify(session)) {
-    const result = await ucpClient(session).searchCatalog(input.query, { limit: input.limit });
-    return result.products.filter((product): product is ShopifyUcpProduct => Boolean(product)).filter((product) => matchesShopperConstraints(product, input)).map(toPublicShopifyProduct).slice(0, input.limit || 5);
+    const result = await ucpClient(session).searchCatalog(constraints.query, { limit: Math.max(constraints.limit || 5, 10) });
+    return result.products.filter((product): product is ShopifyUcpProduct => Boolean(product)).filter((product) => queryMatchesProduct(product, constraints.query) && matchesShopperConstraints(product, constraints)).map(toPublicShopifyProduct).slice(0, constraints.limit || 5);
   }
   const products = await getCommerceRepository().listProducts(context);
-  return products.filter((product) => {
-    return textForProduct(product).includes(input.query.toLowerCase()) && matchesShopperConstraints(product, input);
-  }).slice(0, input.limit || 5).map(toPublicProduct);
+  return products.filter((product) => queryMatchesProduct(product, constraints.query) && matchesShopperConstraints(product, constraints)).sort((a, b) => b.stock - a.stock).slice(0, constraints.limit || 5).map(toPublicProduct);
+}
+
+/** Returns complementary products for a known product context. The category
+ * and exclusion checks happen after retrieval so the model cannot broaden an
+ * accessory request into unrelated primary furniture. */
+export async function searchComplementaryProducts(context: TrustedRequestContext, session: SessionRecord, currentProduct: { id: string; name?: string; title?: string; category?: string; tags?: string[] }) {
+  const source = `${currentProduct.name || currentProduct.title || "product"} ${currentProduct.category || ""} ${(currentProduct.tags || []).join(" ")}`.toLowerCase();
+  const query = /desk|workspace|office/.test(source) ? "desk lamp organizer tray accessories" : /chair|seat/.test(source) ? "lamp side table accessories" : /bed|bedroom/.test(source) ? "bedside lamp table accessories" : "home accessories lamp organizer";
+  const excluded = /sofa|bed|dining table|dresser|console|coffee table|media console/;
+  const accepted = /desk|workspace|office/.test(source) ? /lamp|lighting|organizer|tray|desk chair|chair/ : /chair|seat/.test(source) ? /lamp|lighting|side table|accessor/ : /bed|bedroom/.test(source) ? /bedside|lamp|lighting|side table/ : /lamp|lighting|accessor|organizer|tray/;
+  const productIsAccessory = (product: ShopifyUcpProduct | { name: string; description: string; category: string; tags: string[]; attributes: Record<string, unknown> }) => {
+    const text = textForProduct(product);
+    return !excluded.test(text) && accepted.test(text);
+  };
+  const products = liveShopify(session)
+    ? (await ucpClient(session).searchCatalog(query, { limit: 20 })).products.filter((product): product is ShopifyUcpProduct => Boolean(product)).filter(productIsAccessory).map(toPublicShopifyProduct)
+    : (await getCommerceRepository().listProducts(context)).filter((product) => product.id !== currentProduct.id && productIsAccessory(product)).map(toPublicProduct);
+  const seen = new Set<string>();
+  return products.filter((product) => { if (product.id === currentProduct.id || seen.has(product.id)) return false; seen.add(product.id); return true; }).slice(0, 6);
 }
 
 export async function getProduct(context: TrustedRequestContext, session: SessionRecord, productId: string) {
   if (liveShopify(session)) {
-    const result = await ucpClient(session).getProduct(productId);
+    const normalizedId = /^\d+$/.test(productId) ? `gid://shopify/Product/${productId}` : productId;
+    const result = await ucpClient(session).getProduct(normalizedId);
     return result.product ? toPublicShopifyProduct(result.product) : null;
   }
   const product = await getCommerceRepository().getProduct(context, productId);
@@ -124,7 +178,17 @@ export async function updateCart(context: TrustedRequestContext, session: Sessio
   const repository = getCommerceRepository();
   if (liveShopify(session) && session.shopifyShopDomain) {
     const client = ucpClient(session);
-    const cart = session.shopifyCartId ? await client.updateCart(session.shopifyCartId, { lineItems: lines }) : await client.createCart(lines);
+    let cart: ShopifyUcpCart;
+    if (session.shopifyCartId) {
+      // UCP update_cart is line-item-id based. Reconcile variant references
+      // with the live cart before writing so existing lines are preserved and
+      // quantity changes cannot silently replace the cart.
+      const current = await client.getCart(session.shopifyCartId);
+      const lineItems = lines.map((line) => ({ variantId: line.variantId, quantity: line.quantity, lineItemId: current.lineItems.find((item) => item.item.id === line.variantId)?.id }));
+      cart = await client.updateCart(session.shopifyCartId, { lineItems });
+    } else {
+      cart = await client.createCart(lines);
+    }
     const nextCart = publicCart(cart, session.shopifyShopDomain);
     await repository.updateSessionCart(context, session.id, { currency: cart.currency || session.currency, cartTotalPaise: cart.currency === "INR" ? cartTotal(cart) : 0, shopifyCartId: cart.id, canonicalLineItems: cart.lineItems, cartHash: nextCart.cartHash });
     return nextCart;
