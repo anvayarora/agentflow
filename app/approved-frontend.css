@@ -5003,14 +5003,15 @@ svg.brand-mark {
   overflow: visible;
 }
 
-.page .policy-section .policy-node {
-  width: 28%;
-  height: 132px;
-  min-height: 132px;
-  position: absolute;
-  z-index: 2;
-  display: grid;
-  align-content: start;
+  .page .policy-section .policy-node {
+    width: 28%;
+    height: 132px;
+    min-height: 132px;
+    position: absolute;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
   gap: 4px;
   padding: 14px 13px 10px;
   border: 1px solid #e8d9c8;
